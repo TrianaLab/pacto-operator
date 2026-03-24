@@ -91,36 +91,47 @@ run: manifests generate fmt vet ## Run the operator locally (no dashboard).
 run-with-dashboard: manifests generate fmt vet check-dashboard-image ## Run the operator locally with the dashboard enabled.
 	go run $(LDFLAGS) ./cmd/main.go --enable-dashboard --dashboard-namespace=$(DASHBOARD_NAMESPACE)
 
-##@ Development — Local Kubernetes (Kind)
+##@ Development — Local Kubernetes
+
+# deploy-local and deploy-local-with-dashboard work with any kube context
+# (Docker Desktop, minikube, Kind, etc.). If you use Kind, run `make kind-load`
+# first so the image is available inside the cluster.
 
 KIND_CLUSTER ?= pacto-operator-dev
 
 .PHONY: deploy-local
-deploy-local: docker-build kind-load install deploy ## Build image, load into Kind, install CRDs, and deploy the operator.
+deploy-local: docker-build install deploy ## Build image, install CRDs, and deploy the operator to the current kube context.
 	@echo ""
-	@echo "Operator deployed to Kind cluster '$(KIND_CLUSTER)' (dashboard disabled)."
+	@echo "Operator deployed (dashboard disabled)."
 	@echo "Image: $(IMG)"
 
 .PHONY: deploy-local-with-dashboard
-deploy-local-with-dashboard: check-dashboard-image docker-build kind-load install deploy-with-dashboard-args ## Build image, load into Kind, install CRDs, and deploy the operator with dashboard.
+deploy-local-with-dashboard: check-dashboard-image docker-build install deploy-with-dashboard-args ## Build image, install CRDs, and deploy the operator with dashboard to the current kube context.
 	@echo ""
-	@echo "Operator deployed to Kind cluster '$(KIND_CLUSTER)' (dashboard enabled)."
+	@echo "Operator deployed (dashboard enabled)."
 	@echo "Image: $(IMG)"
 	@echo "Dashboard image: $(DASHBOARD_IMG)"
 
 .PHONY: kind-load
-kind-load: ## Load the controller image into the active Kind cluster.
+kind-load: ## Load the controller image into the active Kind cluster (run before deploy-local if using Kind).
 	$(KIND) load docker-image $(IMG) --name $(KIND_CLUSTER)
+
+.PHONY: deploy-kind
+deploy-kind: docker-build kind-load install deploy ## Build, load into Kind, install CRDs, and deploy the operator.
+	@echo ""
+	@echo "Operator deployed to Kind cluster '$(KIND_CLUSTER)' (dashboard disabled)."
+	@echo "Image: $(IMG)"
 
 .PHONY: deploy-with-dashboard-args
 deploy-with-dashboard-args: manifests kustomize
 	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default | \
-		sed 's/- --leader-elect/- --leader-elect\n          - --enable-dashboard/' | \
-		"$(KUBECTL)" apply -f -
+	cd config/default && cp kustomization.yaml kustomization.yaml.bak && \
+		"$(KUSTOMIZE)" edit add patch --path manager_dashboard_patch.yaml --kind Deployment
+	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
+	cd config/default && mv kustomization.yaml.bak kustomization.yaml
 
 .PHONY: undeploy-local
-undeploy-local: undeploy ## Remove the operator from the local Kind cluster.
+undeploy-local: undeploy ## Remove the operator from the current kube context.
 
 ##@ Development — Common
 
@@ -142,7 +153,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v /e2e) -coverprofile cover.out
 
 KIND_CLUSTER_E2E ?= pacto-operator-test-e2e
 
@@ -231,7 +242,65 @@ helm-docs: ## Generate Helm chart documentation with helm-docs.
 helm-lint: ## Lint the Helm chart.
 	helm lint charts/pacto-operator
 
-##@ Deployment
+HELM_RELEASE ?= pacto-operator
+HELM_NAMESPACE ?= pacto-operator-system
+
+# Local helm targets use LoadBalancer for the dashboard Service so the
+# dashboard is immediately accessible without port-forward. The chart
+# default remains ClusterIP — this override only affects local installs.
+HELM_DASHBOARD_SERVICE_TYPE ?= LoadBalancer
+
+.PHONY: helm-install
+helm-install: docker-build ## Build image and install the Helm chart to the current kube context.
+	@CURRENT_CONTEXT=$$(kubectl config current-context 2>/dev/null || echo "none"); \
+	if [ "$$CURRENT_CONTEXT" = "none" ]; then \
+		echo "Error: No Kubernetes context found." >&2; exit 1; \
+	fi; \
+	echo "==> Using cluster: $$CURRENT_CONTEXT"; \
+	echo "==> Installing $(HELM_RELEASE) with image $(IMG)..."; \
+	helm install $(HELM_RELEASE) charts/pacto-operator \
+		--namespace $(HELM_NAMESPACE) \
+		--create-namespace \
+		--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
+		--set image.tag=$(VERSION) \
+		--set image.pullPolicy=Never \
+		--set dashboard.service.type=$(HELM_DASHBOARD_SERVICE_TYPE) \
+		--wait --timeout 5m
+
+.PHONY: helm-upgrade
+helm-upgrade: docker-build ## Build image and upgrade the Helm release.
+	@if ! helm status $(HELM_RELEASE) -n $(HELM_NAMESPACE) >/dev/null 2>&1; then \
+		echo "Error: Release $(HELM_RELEASE) not found. Use 'make helm-install' first." >&2; exit 1; \
+	fi
+	@echo "==> Upgrading $(HELM_RELEASE) with image $(IMG)..."
+	helm upgrade $(HELM_RELEASE) charts/pacto-operator \
+		--namespace $(HELM_NAMESPACE) \
+		--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
+		--set image.tag=$(VERSION) \
+		--set image.pullPolicy=Never \
+		--set dashboard.service.type=$(HELM_DASHBOARD_SERVICE_TYPE) \
+		--wait --timeout 5m
+
+.PHONY: helm-uninstall
+helm-uninstall: ## Uninstall the Helm release.
+	@helm uninstall $(HELM_RELEASE) --namespace $(HELM_NAMESPACE) 2>/dev/null || echo "Release $(HELM_RELEASE) not found"
+
+.PHONY: helm-reinstall
+helm-reinstall: helm-uninstall helm-install ## Uninstall and reinstall the Helm chart.
+
+.PHONY: helm-status
+helm-status: ## Show Helm release status.
+	@helm status $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+.PHONY: helm-history
+helm-history: ## Show Helm release history.
+	@helm history $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+.PHONY: helm-get-values
+helm-get-values: ## Get values for the deployed Helm release.
+	@helm get values $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+##@ Deployment (Kustomize)
 
 ifndef ignore-not-found
   ignore-not-found = false
@@ -280,6 +349,7 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+HELM_UNITTEST ?= $(LOCALBIN)/helm-unittest
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
@@ -294,6 +364,7 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
 GOLANGCI_LINT_VERSION ?= v2.8.0
+HELM_UNITTEST_VERSION ?= 0.7.2
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
@@ -326,5 +397,17 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 		$(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
 		mv -f $(LOCALBIN)/golangci-lint-custom $(GOLANGCI_LINT); \
 	} || true
+
+.PHONY: helm-unittest-install
+helm-unittest-install: $(HELM_UNITTEST) ## Download helm-unittest locally if necessary.
+$(HELM_UNITTEST): $(LOCALBIN)
+	@[ -f "$(HELM_UNITTEST)" ] || { \
+		echo "Downloading helm-unittest $(HELM_UNITTEST_VERSION)..." ; \
+		os=$$(uname -s | sed 's/Darwin/macos/' | sed 's/Linux/linux/') ; \
+		arch=$$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') ; \
+		curl -sSL "https://github.com/helm-unittest/helm-unittest/releases/download/v$(HELM_UNITTEST_VERSION)/helm-unittest-$${os}-$${arch}-$(HELM_UNITTEST_VERSION).tgz" | \
+			tar xz -C "$(LOCALBIN)" untt ; \
+		mv "$(LOCALBIN)/untt" "$(HELM_UNITTEST)" ; \
+	}
 
 include ci.mk

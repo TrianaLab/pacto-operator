@@ -53,3 +53,39 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].args
           content: "--enable-dashboard"
+
+  - it: should use custom image tag
+    set:
+      image.tag: "v1.2.3"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/trianalab/pacto-operator/pacto-controller:v1.2.3"
+
+  - it: should disable leader election
+    set:
+      leaderElection.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--leader-elect=false"
+
+  - it: should disable metrics bind address when metrics disabled
+    set:
+      metrics.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--metrics-bind-address=0"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--metrics-secure=true"
+
+  - it: should include dashboard OCI secret arg
+    set:
+      dashboard.enabled: true
+      dashboard.ociSecret: my-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oci-secret=my-secret"

@@ -7,9 +7,9 @@ tests:
       - isKind:
           of: ClusterRole
 
-  - it: should not include dashboard RBAC by default
+  - it: should include dashboard RBAC by default
     asserts:
-      - notContains:
+      - contains:
           path: rules
           content:
             apiGroups: [rbac.authorization.k8s.io]
@@ -17,11 +17,11 @@ tests:
             verbs: [create, delete, get, list, update, watch]
         any: true
 
-  - it: should include dashboard RBAC when dashboard is enabled
+  - it: should not include dashboard RBAC when dashboard is disabled
     set:
-      dashboard.enabled: true
+      dashboard.enabled: false
     asserts:
-      - contains:
+      - notContains:
           path: rules
           content:
             apiGroups: [rbac.authorization.k8s.io]

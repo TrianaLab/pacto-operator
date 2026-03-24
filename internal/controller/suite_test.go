@@ -81,7 +81,7 @@ var _ = BeforeSuite(func() {
 	err = (&PactoReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("pacto-controller"),
+		Recorder: mgr.GetEventRecorderFor("pacto-controller"), //nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
 		Loader:   loader.New(),
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
