@@ -1,4 +1,5 @@
 [![CI](https://github.com/TrianaLab/pacto-operator/actions/workflows/ci.yml/badge.svg)](https://github.com/TrianaLab/pacto-operator/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/TrianaLab/pacto-operator/graph/badge.svg?token=uMQvuK30Up)](https://codecov.io/gh/TrianaLab/pacto-operator)
 [![Go Report Card](https://goreportcard.com/badge/github.com/trianalab/pacto-operator)](https://goreportcard.com/report/github.com/trianalab/pacto-operator)
 [![GitHub Release](https://img.shields.io/github/v/release/TrianaLab/pacto-operator)](https://github.com/TrianaLab/pacto-operator/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
