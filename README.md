@@ -3,6 +3,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/trianalab/pacto-operator)](https://goreportcard.com/report/github.com/trianalab/pacto-operator)
 [![GitHub Release](https://img.shields.io/github/v/release/TrianaLab/pacto-operator)](https://github.com/TrianaLab/pacto-operator/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator)
 
 # Pacto Operator
 
