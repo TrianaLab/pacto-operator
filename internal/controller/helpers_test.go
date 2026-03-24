@@ -313,7 +313,7 @@ func TestPopulateContractStatus_Full(t *testing.T) {
 			Configuration: &contract.Configuration{
 				Schema: "config-schema.json",
 				Ref:    "oci://config-ref",
-				Values: map[string]interface{}{
+				Values: map[string]any{
 					"db_host":     "localhost",
 					"db_password": "secret://vault/db-pass",
 					"log_level":   "info",
@@ -353,7 +353,7 @@ func TestPopulateContractStatus_Full(t *testing.T) {
 				Min:      2,
 				Max:      5,
 			},
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"team":     "platform",
 				"priority": 1,
 			},
@@ -669,7 +669,7 @@ func TestPopulateContractStatus_ConfigurationNoSchema(t *testing.T) {
 	lr := &loader.LoadResult{
 		Contract: &contract.Contract{
 			Service:       contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-			Configuration: &contract.Configuration{Values: map[string]interface{}{"key1": "val1"}},
+			Configuration: &contract.Configuration{Values: map[string]any{"key1": "val1"}},
 		},
 		RawYAML: []byte("test"),
 	}
@@ -1002,9 +1002,9 @@ func TestProbeEndpoints_MetricsOnly(t *testing.T) {
 
 // ---------- mapObjectToPactos (enqueueForTarget logic) ----------
 
-func newFakeObj(name, namespace string) client.Object {
+func newFakeObj(name string) client.Object {
 	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 	}
 }
 
@@ -1020,7 +1020,7 @@ func TestMapObjectToPactos_ServiceNameMatch(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).Build()
 
 	mapFn := mapObjectToPactos(c)
-	requests := mapFn(context.Background(), newFakeObj("my-svc", "default"))
+	requests := mapFn(context.Background(), newFakeObj("my-svc"))
 	if len(requests) != 1 {
 		t.Fatalf("expected 1 request, got %d", len(requests))
 	}
@@ -1044,7 +1044,7 @@ func TestMapObjectToPactos_WorkloadRefMatch(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).Build()
 
 	mapFn := mapObjectToPactos(c)
-	requests := mapFn(context.Background(), newFakeObj("my-deploy", "default"))
+	requests := mapFn(context.Background(), newFakeObj("my-deploy"))
 	if len(requests) != 1 {
 		t.Fatalf("expected 1 request, got %d", len(requests))
 	}
@@ -1065,7 +1065,7 @@ func TestMapObjectToPactos_Dedup(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).Build()
 
 	mapFn := mapObjectToPactos(c)
-	requests := mapFn(context.Background(), newFakeObj("my-app", "default"))
+	requests := mapFn(context.Background(), newFakeObj("my-app"))
 	if len(requests) != 1 {
 		t.Fatalf("expected 1 request (dedup), got %d", len(requests))
 	}
@@ -1083,7 +1083,7 @@ func TestMapObjectToPactos_NoMatch(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).Build()
 
 	mapFn := mapObjectToPactos(c)
-	requests := mapFn(context.Background(), newFakeObj("unrelated", "default"))
+	requests := mapFn(context.Background(), newFakeObj("unrelated"))
 	if len(requests) != 0 {
 		t.Fatalf("expected 0 requests, got %d", len(requests))
 	}
@@ -1096,7 +1096,7 @@ func TestMapObjectToPactos_ListError(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).Build()
 
 	mapFn := mapObjectToPactos(c)
-	requests := mapFn(context.Background(), newFakeObj("my-svc", "default"))
+	requests := mapFn(context.Background(), newFakeObj("my-svc"))
 	if len(requests) != 0 {
 		t.Fatalf("expected 0 requests on list error, got %d", len(requests))
 	}
@@ -1121,7 +1121,7 @@ func TestMapObjectToPactos_MultiplePactos(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(pacto1, pacto2).Build()
 
 	mapFn := mapObjectToPactos(c)
-	requests := mapFn(context.Background(), newFakeObj("shared-svc", "default"))
+	requests := mapFn(context.Background(), newFakeObj("shared-svc"))
 	if len(requests) != 2 {
 		t.Fatalf("expected 2 requests, got %d", len(requests))
 	}
