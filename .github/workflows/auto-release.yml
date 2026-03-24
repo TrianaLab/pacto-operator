@@ -172,13 +172,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Update chart version
+        run: |
+          version="${{ steps.meta.outputs.version }}"
+          sed -i "s/^version:.*/version: ${version}/" charts/pacto-operator/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${version}\"/" charts/pacto-operator/Chart.yaml
+
+      - name: Regenerate chart README
+        uses: losisin/helm-docs-github-action@v1.8.0
+        with:
+          chart-search-root: charts
+
       - name: Package and push Helm chart
         id: push
         run: |
           version="${{ steps.meta.outputs.version }}"
-          # Update chart version and appVersion to match the release
-          sed -i "s/^version:.*/version: ${version}/" charts/pacto-operator/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: \"${version}\"/" charts/pacto-operator/Chart.yaml
           helm package charts/pacto-operator
           output=$(helm push pacto-operator-${version}.tgz oci://ghcr.io/trianalab/charts 2>&1)
           echo "$output"
