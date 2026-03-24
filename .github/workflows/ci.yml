@@ -30,7 +30,7 @@ jobs:
           target: ci-test
       - name: Upload results to Codecov
         if: github.event_name == 'push'
-        uses: codecov/codecov-action@v5.5.2
+        uses: codecov/codecov-action@v5.5.3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: cover.out
