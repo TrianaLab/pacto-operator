@@ -21,6 +21,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -68,7 +69,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var enableDashboard bool
-	var dashboardNamespace string
+	var watchNamespace string
 	var dashboardOCISecret string
 	var showVersion bool
 	var tlsOpts []func(*tls.Config)
@@ -91,10 +92,11 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.BoolVar(&enableDashboard, "enable-dashboard", false,
 		"Enable the managed Pacto dashboard deployment. Disabled by default.")
-	flag.StringVar(&dashboardNamespace, "dashboard-namespace", "",
-		"Namespace for the dashboard deployment. Defaults to the operator's namespace (from POD_NAMESPACE env var).")
+	flag.StringVar(&watchNamespace, "watch-namespace", "",
+		"Restrict the controller to watch a single namespace. Empty (default) means cluster-wide. "+
+			"The dashboard inherits this scope automatically.")
 	flag.StringVar(&dashboardOCISecret, "dashboard-oci-secret", "",
-		"Optional: name of a Secret in the dashboard namespace containing OCI registry credentials "+
+		"Optional: name of a Secret in the operator namespace containing OCI registry credentials "+
 			"(keys: username, password, token).")
 	flag.BoolVar(&showVersion, "version", false, "Print version information and exit.")
 	opts := zap.Options{
@@ -185,7 +187,7 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgrOpts := ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
@@ -203,7 +205,19 @@ func main() {
 		// if you are doing or is intended to do any operation such as perform cleanups
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
-	})
+	}
+
+	// Restrict the cache to a single namespace when --watch-namespace is set.
+	if watchNamespace != "" {
+		mgrOpts.Cache = cache.Options{
+			DefaultNamespaces: map[string]cache.Config{
+				watchNamespace: {},
+			},
+		}
+		setupLog.Info("Watching single namespace", "namespace", watchNamespace)
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
 	if err != nil {
 		setupLog.Error(err, "Failed to start manager")
 		os.Exit(1)
@@ -220,10 +234,8 @@ func main() {
 	}
 	// +kubebuilder:scaffold:builder
 
-	// Dashboard feature toggle
-	if dashboardNamespace == "" {
-		dashboardNamespace = os.Getenv("POD_NAMESPACE")
-	}
+	// Dashboard feature toggle — always deployed to the operator's own namespace.
+	dashboardNamespace := os.Getenv("POD_NAMESPACE")
 	if dashboardNamespace == "" {
 		dashboardNamespace = "pacto-operator-system"
 	}
@@ -235,10 +247,11 @@ func main() {
 	}
 
 	dashCfg := dashboard.Config{
-		Enabled:   enableDashboard,
-		Image:     dashboardImage,
-		Namespace: dashboardNamespace,
-		OCISecret: dashboardOCISecret,
+		Enabled:        enableDashboard,
+		Image:          dashboardImage,
+		Namespace:      dashboardNamespace,
+		WatchNamespace: watchNamespace,
+		OCISecret:      dashboardOCISecret,
 	}
 	if err := dashCfg.Validate(); err != nil {
 		setupLog.Error(err, "Invalid dashboard configuration")

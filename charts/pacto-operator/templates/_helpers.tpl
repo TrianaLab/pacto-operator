@@ -71,11 +71,11 @@ Controller arguments derived from values
 {{- else }}
 - --metrics-bind-address=0
 {{- end }}
+{{- if .Values.controller.watchNamespace }}
+- --watch-namespace={{ .Values.controller.watchNamespace }}
+{{- end }}
 {{- if .Values.dashboard.enabled }}
 - --enable-dashboard
-{{- if .Values.dashboard.namespace }}
-- --dashboard-namespace={{ .Values.dashboard.namespace }}
-{{- end }}
 {{- if .Values.dashboard.ociSecret }}
 - --dashboard-oci-secret={{ .Values.dashboard.ociSecret }}
 {{- end }}

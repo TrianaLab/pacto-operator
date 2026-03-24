@@ -116,10 +116,10 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 		{Name: "PACTO_NO_UPDATE_CHECK", Value: "1"},
 	}
 
-	if cfg.Namespace != "" {
+	if cfg.WatchNamespace != "" {
 		env = append(env, corev1.EnvVar{
-			Name:  "PACTO_DASHBOARD_NAMESPACE",
-			Value: cfg.Namespace,
+			Name:  "PACTO_WATCH_NAMESPACE",
+			Value: cfg.WatchNamespace,
 		})
 	}
 
