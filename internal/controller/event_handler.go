@@ -20,7 +20,12 @@ import (
 // enqueueForTarget returns an event handler that maps Service/Workload events
 // to Pacto CRs that target them.
 func enqueueForTarget(c client.Client) handler.EventHandler {
-	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+	return handler.EnqueueRequestsFromMapFunc(mapObjectToPactos(c))
+}
+
+// mapObjectToPactos returns the MapFunc used by enqueueForTarget.
+func mapObjectToPactos(c client.Client) handler.MapFunc {
+	return func(ctx context.Context, obj client.Object) []reconcile.Request {
 		pactoList := &pactov1alpha1.PactoList{}
 		if err := c.List(ctx, pactoList, client.InNamespace(obj.GetNamespace())); err != nil {
 			return nil
@@ -50,5 +55,5 @@ func enqueueForTarget(c client.Client) handler.EventHandler {
 			}
 		}
 		return requests
-	})
+	}
 }

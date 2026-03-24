@@ -13,6 +13,17 @@ ci-test: envtest setup-envtest
 		go test $$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v /e2e) -coverprofile=cover.out
 	@echo "==> Coverage summary:"
 	@go tool cover -func=cover.out | tail -1
+	@echo "==> Enforcing ≥95% coverage (excluding cmd, zz_generated)..."
+	@grep -v -E '(zz_generated|/cmd/)' cover.out > cover.filtered.out || true
+	@total=$$(go tool cover -func=cover.filtered.out | tail -1 | awk '{print $$NF}' | tr -d '%'); \
+		echo "Filtered coverage: $${total}%"; \
+		threshold=95; \
+		if [ $$(echo "$$total < $$threshold" | bc) -eq 1 ]; then \
+			echo "Error: coverage is $${total}%, minimum is $${threshold}%"; \
+			go tool cover -func=cover.filtered.out | grep -v "100.0%"; \
+			exit 1; \
+		fi
+	@rm -f cover.filtered.out
 
 ci-chart: helm-lint helm-template helm-unittest helm-schema helm-docs-check
 

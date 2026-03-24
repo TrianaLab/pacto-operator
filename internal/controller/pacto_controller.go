@@ -37,12 +37,18 @@ import (
 	"github.com/trianalab/pacto/pkg/validation"
 )
 
+// ContractLoader abstracts contract loading and tag listing.
+type ContractLoader interface {
+	Load(ctx context.Context, ociRef, inline string) (*loader.LoadResult, error)
+	ListTags(ctx context.Context, ociRef string) ([]string, error)
+}
+
 // PactoReconciler reconciles a Pacto object.
 type PactoReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
-	Loader   *loader.Loader
+	Loader   ContractLoader
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete

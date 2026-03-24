@@ -2,8 +2,10 @@ package prober
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -130,5 +132,126 @@ func TestBuildURL(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("BuildURL(%q, %q, %d, %q) = %q, want %q", tt.svc, tt.ns, tt.port, tt.path, got, tt.expected)
 		}
+	}
+}
+
+func TestNew_DefaultTimeout(t *testing.T) {
+	// timeout <= 0 should fall back to defaultTimeout
+	p := New(0)
+	if p.client.Timeout != defaultTimeout {
+		t.Errorf("expected default timeout %v, got %v", defaultTimeout, p.client.Timeout)
+	}
+
+	p2 := New(-1 * time.Second)
+	if p2.client.Timeout != defaultTimeout {
+		t.Errorf("expected default timeout %v for negative input, got %v", defaultTimeout, p2.client.Timeout)
+	}
+}
+
+func TestProbe_InvalidURL(t *testing.T) {
+	p := New(1 * time.Second)
+	// A URL with a control character triggers NewRequestWithContext failure
+	result := p.Probe(context.Background(), "http://invalid\x00url")
+
+	if result.Reachable {
+		t.Fatal("expected unreachable for invalid URL")
+	}
+	if !strings.Contains(result.Error, "invalid URL") {
+		t.Errorf("expected 'invalid URL' in error, got: %s", result.Error)
+	}
+}
+
+func TestSanitizeError_NoSeparator(t *testing.T) {
+	err := errors.New("simple error without colon separator")
+	got := sanitizeError(err)
+	if got != "simple error without colon separator" {
+		t.Errorf("expected original message, got: %s", got)
+	}
+}
+
+func TestSanitizeError_EmptySuffix(t *testing.T) {
+	// Error message where text after last ": " is empty — should return full message
+	err := errors.New("prefix: ")
+	got := sanitizeError(err)
+	// suffix is empty (len == 0), so it falls through to return msg
+	if got != "prefix: " {
+		t.Errorf("expected full message for empty suffix, got: %s", got)
+	}
+}
+
+func TestProbe_PrometheusLike_HelpOnly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("# HELP some_metric A help line\nsome_metric 1\n"))
+	}))
+	defer srv.Close()
+
+	p := New(2 * time.Second)
+	result := p.Probe(context.Background(), srv.URL+"/metrics")
+
+	if !result.PrometheusLike {
+		t.Error("expected PrometheusLike=true for response with # HELP only")
+	}
+}
+
+func TestProbe_PrometheusLike_TypeOnly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("# TYPE some_metric counter\nsome_metric 1\n"))
+	}))
+	defer srv.Close()
+
+	p := New(2 * time.Second)
+	result := p.Probe(context.Background(), srv.URL+"/metrics")
+
+	if !result.PrometheusLike {
+		t.Error("expected PrometheusLike=true for response with # TYPE only")
+	}
+}
+
+func TestProbe_PrometheusLike_NeitherMarker(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	p := New(2 * time.Second)
+	result := p.Probe(context.Background(), srv.URL+"/metrics")
+
+	if result.PrometheusLike {
+		t.Error("expected PrometheusLike=false for JSON response without markers")
+	}
+}
+
+func TestProbe_RedirectNotFollowed(t *testing.T) {
+	// Verify that the CheckRedirect returning ErrUseLastResponse
+	// causes the redirect to be reported as-is without following it.
+	redirectCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectCount++
+		if redirectCount > 1 {
+			t.Error("redirect was followed — expected CheckRedirect to stop it")
+		}
+		http.Redirect(w, r, "/other", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	p := New(2 * time.Second)
+	result := p.Probe(context.Background(), srv.URL+"/start")
+
+	if !result.Reachable {
+		t.Fatalf("expected reachable, got error: %s", result.Error)
+	}
+	if result.StatusCode != 302 {
+		t.Errorf("expected status 302, got %d", result.StatusCode)
+	}
+}
+
+func TestBuildURL_PathWithoutSlash(t *testing.T) {
+	got := BuildURL("svc", "ns", 8080, "metrics")
+	want := "http://svc.ns.svc:8080/metrics"
+	if got != want {
+		t.Errorf("BuildURL with path without slash: got %q, want %q", got, want)
 	}
 }
