@@ -581,8 +581,12 @@ func (r *PactoReconciler) probeOneEndpoint(ctx context.Context, p *prober.Prober
 	}
 
 	url := prober.BuildURL(spec.serviceName, spec.namespace, port, spec.path)
-
 	result := p.Probe(ctx, url)
+	return evaluateProbeResult(result, url, spec)
+}
+
+// evaluateProbeResult translates a prober.Result into a check and endpoint status.
+func evaluateProbeResult(result prober.Result, url string, spec probeSpec) (validator.Check, *pactov1alpha1.EndpointCheckResult) {
 	epResult := &pactov1alpha1.EndpointCheckResult{
 		URL:        url,
 		Reachable:  result.Reachable,

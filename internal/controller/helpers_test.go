@@ -2430,6 +2430,318 @@ func TestFailReconciliation_StatusUpdateError(t *testing.T) {
 	}
 }
 
+// ---------- evaluateProbeResult: pure function tests ----------
+
+func TestEvaluateProbeResult_Unreachable(t *testing.T) {
+	spec := probeSpec{
+		conditionType: pactov1alpha1.ConditionHealthEndpointValid,
+		label:         "health",
+	}
+	result := prober.Result{Reachable: false, Error: "connection refused"}
+	check, ep := evaluateProbeResult(result, "http://svc:8080/healthz", spec)
+	if check.Passed {
+		t.Fatal("expected check to fail")
+	}
+	if check.Reason != pactov1alpha1.ReasonEndpointConnectionError {
+		t.Fatalf("expected ConnectionError, got %s", check.Reason)
+	}
+	if ep == nil || ep.Reachable {
+		t.Fatal("expected unreachable endpoint result")
+	}
+}
+
+func TestEvaluateProbeResult_HealthBadStatus(t *testing.T) {
+	spec := probeSpec{
+		conditionType: pactov1alpha1.ConditionHealthEndpointValid,
+		label:         "health",
+		requireBody:   false,
+	}
+	result := prober.Result{Reachable: true, StatusCode: 503}
+	check, ep := evaluateProbeResult(result, "http://svc:8080/healthz", spec)
+	if check.Passed {
+		t.Fatal("expected check to fail for 503")
+	}
+	if check.Reason != pactov1alpha1.ReasonEndpointInvalidStatus {
+		t.Fatalf("expected InvalidStatus, got %s", check.Reason)
+	}
+	if ep == nil {
+		t.Fatal("expected endpoint result")
+	}
+}
+
+func TestEvaluateProbeResult_HealthSuccess(t *testing.T) {
+	spec := probeSpec{
+		conditionType: pactov1alpha1.ConditionHealthEndpointValid,
+		label:         "health",
+		requireBody:   false,
+	}
+	result := prober.Result{Reachable: true, StatusCode: 200, LatencyMs: 5}
+	check, ep := evaluateProbeResult(result, "http://svc:8080/healthz", spec)
+	if !check.Passed {
+		t.Fatal("expected check to pass")
+	}
+	if check.Reason != pactov1alpha1.ReasonEndpointOK {
+		t.Fatalf("expected EndpointOK, got %s", check.Reason)
+	}
+	if ep == nil || ep.StatusCode != 200 {
+		t.Fatal("expected 200 in endpoint result")
+	}
+}
+
+func TestEvaluateProbeResult_MetricsNon200(t *testing.T) {
+	spec := probeSpec{
+		conditionType: pactov1alpha1.ConditionMetricsEndpointValid,
+		label:         "metrics",
+		requireBody:   true,
+	}
+	result := prober.Result{Reachable: true, StatusCode: 404}
+	check, ep := evaluateProbeResult(result, "http://svc:9090/metrics", spec)
+	if check.Passed {
+		t.Fatal("expected check to fail for non-200 metrics")
+	}
+	if check.Reason != pactov1alpha1.ReasonEndpointInvalidStatus {
+		t.Fatalf("expected InvalidStatus, got %s", check.Reason)
+	}
+	if ep == nil {
+		t.Fatal("expected endpoint result")
+	}
+}
+
+func TestEvaluateProbeResult_MetricsEmptyBody(t *testing.T) {
+	spec := probeSpec{
+		conditionType: pactov1alpha1.ConditionMetricsEndpointValid,
+		label:         "metrics",
+		requireBody:   true,
+	}
+	result := prober.Result{Reachable: true, StatusCode: 200, ContentPresent: false}
+	check, ep := evaluateProbeResult(result, "http://svc:9090/metrics", spec)
+	if check.Passed {
+		t.Fatal("expected check to fail for empty body")
+	}
+	if check.Reason != pactov1alpha1.ReasonEndpointEmptyResponse {
+		t.Fatalf("expected EmptyResponse, got %s", check.Reason)
+	}
+	if ep == nil {
+		t.Fatal("expected endpoint result")
+	}
+}
+
+func TestEvaluateProbeResult_MetricsSuccess(t *testing.T) {
+	spec := probeSpec{
+		conditionType: pactov1alpha1.ConditionMetricsEndpointValid,
+		label:         "metrics",
+		requireBody:   true,
+	}
+	result := prober.Result{Reachable: true, StatusCode: 200, ContentPresent: true, LatencyMs: 10}
+	check, ep := evaluateProbeResult(result, "http://svc:9090/metrics", spec)
+	if !check.Passed {
+		t.Fatal("expected check to pass")
+	}
+	if check.Reason != pactov1alpha1.ReasonEndpointOK {
+		t.Fatalf("expected EndpointOK, got %s", check.Reason)
+	}
+	if ep == nil || ep.StatusCode != 200 {
+		t.Fatal("expected 200 in endpoint result")
+	}
+}
+
+// ---------- Reconcile: validation errors path ----------
+
+func TestReconcile_ValidationErrors(t *testing.T) {
+	s := newScheme()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto",
+			Namespace: "default",
+		},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{
+				Inline: "invalid: yaml",
+			},
+		},
+	}
+
+	// RawYAML that fails structural validation (missing required "service" field)
+	badYAML := []byte("invalid: yaml\n")
+
+	cb := fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).WithStatusSubresource(pacto)
+	r := &PactoReconciler{
+		Client:   cb.Build(),
+		Scheme:   s,
+		Recorder: record.NewFakeRecorder(20),
+		Loader: &mockLoader{
+			loadFn: func(ctx context.Context, ociRef, inline string) (*loader.LoadResult, error) {
+				return &loader.LoadResult{
+					Contract: &contract.Contract{
+						Service: contract.ServiceIdentity{Name: "test", Version: "1.0.0"},
+					},
+					RawYAML: badYAML,
+				}, nil
+			},
+		},
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "my-pacto", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should requeue (failReconciliation sets requeue)
+	if result.RequeueAfter == 0 {
+		t.Error("expected requeue after validation errors")
+	}
+
+	// Verify the pacto status was updated with Invalid phase
+	var updated pactov1alpha1.Pacto
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "my-pacto", Namespace: "default"}, &updated); err != nil {
+		t.Fatalf("failed to get updated pacto: %v", err)
+	}
+	if updated.Status.Phase != pactov1alpha1.PhaseInvalid {
+		t.Errorf("expected phase Invalid, got %s", updated.Status.Phase)
+	}
+}
+
+// ---------- ensureRevision: additional error paths ----------
+
+func TestEnsureRevision_BackfillStatusUpdateError(t *testing.T) {
+	s := newScheme()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto",
+			Namespace: "default",
+			UID:       "test-uid",
+		},
+	}
+
+	rawYAML := []byte("service:\n  name: svc\n  version: 1.0.0\n")
+	hash := fmt.Sprintf("%x", sha256.Sum256(rawYAML))
+	revName := "my-pacto-1-0-0-" + hash[:7]
+
+	// Create existing revision with empty status to trigger backfill
+	existingRev := &pactov1alpha1.PactoRevision{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      revName,
+			Namespace: "default",
+		},
+		// Status.ContractHash is empty → triggers backfill
+	}
+
+	cb := fake.NewClientBuilder().WithScheme(s).WithObjects(pacto, existingRev).
+		WithStatusSubresource(existingRev).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+				if _, ok := obj.(*pactov1alpha1.PactoRevision); ok {
+					return fmt.Errorf("simulated status update error")
+				}
+				return c.Status().Update(ctx, obj, opts...)
+			},
+		})
+
+	r := &PactoReconciler{
+		Client:   cb.Build(),
+		Scheme:   s,
+		Recorder: record.NewFakeRecorder(20),
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		},
+		RawYAML: rawYAML,
+	}
+
+	// Should still return the revision name (backfill error is logged but not returned)
+	name, err := r.ensureRevision(context.Background(), pacto, lr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if name != revName {
+		t.Errorf("expected revision name %s, got %s", revName, name)
+	}
+}
+
+func TestEnsureRevision_SetControllerReferenceError(t *testing.T) {
+	// Use an empty scheme so SetControllerReference can't resolve Pacto's GVK
+	emptyScheme := runtime.NewScheme()
+
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto",
+			Namespace: "default",
+			UID:       "test-uid",
+		},
+	}
+
+	// Use the normal scheme for the fake client but the empty scheme for the reconciler
+	normalScheme := newScheme()
+	cb := fake.NewClientBuilder().WithScheme(normalScheme).WithObjects(pacto)
+	r := &PactoReconciler{
+		Client:   cb.Build(),
+		Scheme:   emptyScheme, // SetControllerReference will fail
+		Recorder: record.NewFakeRecorder(20),
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		},
+		RawYAML: []byte("service:\n  name: svc\n  version: 1.0.0\n"),
+	}
+
+	_, err := r.ensureRevision(context.Background(), pacto, lr)
+	if err == nil {
+		t.Fatal("expected error from SetControllerReference")
+	}
+	if !strings.Contains(err.Error(), "owner reference") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestEnsureRevision_CreateStatusUpdateError(t *testing.T) {
+	s := newScheme()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto",
+			Namespace: "default",
+			UID:       "test-uid",
+		},
+	}
+
+	cb := fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).
+		WithStatusSubresource(&pactov1alpha1.PactoRevision{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+				if _, ok := obj.(*pactov1alpha1.PactoRevision); ok {
+					return fmt.Errorf("simulated status update error after create")
+				}
+				return c.Status().Update(ctx, obj, opts...)
+			},
+		})
+
+	r := &PactoReconciler{
+		Client:   cb.Build(),
+		Scheme:   s,
+		Recorder: record.NewFakeRecorder(20),
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		},
+		RawYAML: []byte("service:\n  name: svc\n  version: 1.0.0\n"),
+	}
+
+	// Should succeed (status update error is logged but not returned)
+	name, err := r.ensureRevision(context.Background(), pacto, lr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if name == "" {
+		t.Fatal("expected non-empty revision name")
+	}
+}
+
 // ---------- helper ----------
 
 func findCondition(conditions []metav1.Condition, condType string) *metav1.Condition {

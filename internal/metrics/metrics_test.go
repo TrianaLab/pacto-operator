@@ -1,11 +1,21 @@
 package metrics
 
 import (
+	"fmt"
 	"testing"
 
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
 	"github.com/trianalab/pacto-operator/internal/validator"
 )
+
+func TestMust_PanicsOnError(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic from must")
+		}
+	}()
+	must(0, fmt.Errorf("test error"))
+}
 
 func TestRecordValidation_AllPassed(t *testing.T) {
 	checks := []validator.Check{

@@ -32,17 +32,12 @@ func mapObjectToPactos(c client.Client) handler.MapFunc {
 		}
 
 		var requests []reconcile.Request
-		seen := make(map[types.NamespacedName]bool)
 
 		for _, p := range pactoList.Items {
 			nn := types.NamespacedName{Name: p.Name, Namespace: p.Namespace}
-			if seen[nn] {
-				continue
-			}
 
 			// Match by service name
 			if p.Spec.Target.ServiceName == obj.GetName() {
-				seen[nn] = true
 				requests = append(requests, reconcile.Request{NamespacedName: nn})
 				continue
 			}
@@ -50,7 +45,6 @@ func mapObjectToPactos(c client.Client) handler.MapFunc {
 			// Match by workload ref name
 			workloadName, _ := p.ResolvedWorkload()
 			if workloadName == obj.GetName() {
-				seen[nn] = true
 				requests = append(requests, reconcile.Request{NamespacedName: nn})
 			}
 		}

@@ -28,6 +28,10 @@ type Reconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	Config Config
+
+	// tickInterval overrides the periodic reconciliation interval (default 5m).
+	// Exposed for testing only.
+	tickInterval time.Duration
 }
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create
@@ -93,7 +97,11 @@ func (r *Reconciler) Start(ctx context.Context) error {
 
 	// If enabled, run periodic reconciliation
 	if r.Config.Enabled {
-		ticker := time.NewTicker(5 * time.Minute)
+		interval := r.tickInterval
+		if interval == 0 {
+			interval = 5 * time.Minute
+		}
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {

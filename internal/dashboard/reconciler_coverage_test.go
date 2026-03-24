@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -273,6 +274,65 @@ func TestStart_InitialReconcileFailure(t *testing.T) {
 	expected := "initial dashboard reconciliation failed: namespace: simulated start failure"
 	if got := err.Error(); got != expected {
 		t.Errorf("unexpected error:\n  got:  %s\n  want: %s", got, expected)
+	}
+}
+
+// --- Start: periodic reconcile with ticker fire ---
+
+func TestStart_Enabled_TickerFire(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
+	r := newReconciler(cfg)
+	r.tickInterval = 10 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() {
+		done <- r.Start(ctx)
+	}()
+
+	// Let at least one tick fire
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	err := <-done
+	if err != nil {
+		t.Fatalf("Start should return nil after cancel: %v", err)
+	}
+}
+
+func TestStart_Enabled_TickerReconcileError(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
+
+	callCount := 0
+	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			// Let the initial reconcile succeed, then fail on ticker reconcile
+			if _, ok := obj.(*corev1.Namespace); ok {
+				callCount++
+				if callCount > 1 {
+					return fmt.Errorf("simulated periodic failure")
+				}
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+	r.tickInterval = 10 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() {
+		done <- r.Start(ctx)
+	}()
+
+	// Wait for a few ticks to fire (some will error, which is logged but not returned)
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	err := <-done
+	if err != nil {
+		t.Fatalf("Start should return nil after cancel even with periodic errors: %v", err)
 	}
 }
 
