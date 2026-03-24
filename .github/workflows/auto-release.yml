@@ -1,0 +1,162 @@
+name: Auto release
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      skip: ${{ steps.bump.outputs.type == 'skip' }}
+    steps:
+      - name: Determine version bump
+        id: bump
+        run: |
+          title="${{ github.event.pull_request.title }}"
+
+          if [[ "$title" =~ ^[a-z]+(\(.+\))?\!: ]]; then
+            echo "type=major" >> "$GITHUB_OUTPUT"
+          elif [[ "$title" =~ ^feat(\(.+\))?: ]]; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"
+          elif [[ "$title" =~ ^(fix|perf|refactor)(\(.+\))?\!?: ]]; then
+            echo "type=patch" >> "$GITHUB_OUTPUT"
+          else
+            echo "Skipping release for: $title"
+            echo "type=skip" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v6.0.2
+        if: steps.bump.outputs.type != 'skip'
+        with:
+          fetch-depth: 0
+
+      - name: Calculate next version
+        if: steps.bump.outputs.type != 'skip'
+        id: version
+        run: |
+          latest=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            latest="v0.0.0"
+          fi
+
+          version="${latest#v}"
+          IFS='.' read -r major minor patch <<< "$version"
+
+          case "${{ steps.bump.outputs.type }}" in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+          esac
+
+          next="v${major}.${minor}.${patch}"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "Bumping ${{ steps.bump.outputs.type }}: $latest -> $next"
+
+      - name: Create GitHub release
+        if: steps.bump.outputs.type != 'skip'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes \
+            --target main
+
+  docker:
+    needs: release
+    if: needs.release.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Extract versions
+        id: meta
+        run: |
+          tag="${{ needs.release.outputs.tag }}"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          # Extract pacto dependency version from go.mod for dashboard image
+          pacto_ver=$(go list -m -f '{{.Version}}' github.com/trianalab/pacto 2>/dev/null || echo "")
+          echo "pacto_version=${pacto_ver#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v6.3.0
+        with:
+          go-version: '1.25'
+
+      - uses: docker/setup-qemu-action@v4.0.0
+      - uses: docker/setup-buildx-action@v4.0.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push controller image
+        uses: docker/build-push-action@v7.0.0
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/trianalab/pacto-operator/pacto-controller:${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.release.outputs.tag }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.pull_request.merged_at }}
+            DASHBOARD_IMAGE=ghcr.io/trianalab/pacto-dashboard:${{ steps.meta.outputs.pacto_version }}
+          labels: |
+            org.opencontainers.image.title=pacto-controller
+            org.opencontainers.image.description=Pacto Operator controller for Kubernetes
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  helm:
+    needs: release
+    if: needs.release.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Extract version
+        id: meta
+        run: |
+          tag="${{ needs.release.outputs.tag }}"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username ${{ github.actor }} --password-stdin
+
+      - name: Package and push Helm chart
+        run: |
+          version="${{ steps.meta.outputs.version }}"
+          # Update chart version and appVersion to match the release
+          sed -i "s/^version:.*/version: ${version}/" charts/pacto-operator/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${version}\"/" charts/pacto-operator/Chart.yaml
+          helm package charts/pacto-operator
+          helm push pacto-operator-${version}.tgz oci://ghcr.io/trianalab/charts

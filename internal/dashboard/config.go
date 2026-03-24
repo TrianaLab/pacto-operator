@@ -1,0 +1,62 @@
+/*
+Copyright 2026.
+
+Licensed under the MIT License.
+See LICENSE file in the project root for full license text.
+*/
+
+package dashboard
+
+import "fmt"
+
+// Config holds the global dashboard deployment configuration.
+type Config struct {
+	// Enabled controls whether the operator manages a dashboard deployment.
+	Enabled bool
+
+	// Image is the full dashboard container image reference, set at build time
+	// to couple the dashboard version to the Pacto library dependency.
+	// Not user-configurable.
+	Image string
+
+	// Namespace is the Kubernetes namespace where the dashboard resources are deployed.
+	// Defaults to the operator's own namespace if empty.
+	Namespace string
+
+	// OCISecret is the optional name of a Kubernetes Secret (in the dashboard namespace)
+	// containing OCI registry credentials. If set, the dashboard will use these for
+	// registry access via PACTO_REGISTRY_* environment variables.
+	OCISecret string
+}
+
+// Validate checks that the config is valid when the feature is enabled.
+func (c Config) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	if c.Image == "" {
+		return fmt.Errorf("dashboard image must be set at build time via ldflags")
+	}
+	if c.Namespace == "" {
+		return fmt.Errorf("dashboard namespace must be set (defaults to operator namespace)")
+	}
+	// Reject "latest" tag
+	if hasLatestTag(c.Image) {
+		return fmt.Errorf("dashboard image must not use 'latest' tag: %s", c.Image)
+	}
+	return nil
+}
+
+func hasLatestTag(image string) bool {
+	// Check for :latest suffix or no tag at all (which defaults to latest)
+	for i := len(image) - 1; i >= 0; i-- {
+		if image[i] == ':' {
+			return image[i+1:] == "latest"
+		}
+		if image[i] == '/' {
+			break
+		}
+	}
+	// No tag found — treated as implicit latest
+	return true
+}

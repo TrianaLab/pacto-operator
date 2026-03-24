@@ -1,0 +1,38 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.description" . }}
+
+## Installation
+
+```bash
+helm install pacto-operator oci://ghcr.io/trianalab/charts/pacto-operator
+```
+
+## CRDs
+
+CRDs are installed automatically from the `crds/` directory. Helm installs CRDs before any other resources and does not delete them on `helm uninstall` (by design).
+
+## Dashboard
+
+The operator manages the Pacto dashboard deployment lifecycle. The dashboard image version is automatically determined by the Pacto library version bundled into the controller — it is not user-configurable.
+
+To enable:
+
+```yaml
+dashboard:
+  enabled: true
+```
+
+## Metrics
+
+The controller exposes Prometheus metrics. Enable a ServiceMonitor with:
+
+```yaml
+metrics:
+  serviceMonitor:
+    enabled: true
+```
+
+{{ template "chart.valuesSection" . }}
+
+{{ template "chart.maintainersSection" . }}

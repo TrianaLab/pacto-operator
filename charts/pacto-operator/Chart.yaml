@@ -1,0 +1,17 @@
+apiVersion: v2
+name: pacto-operator
+description: Kubernetes operator for Pacto service contract validation
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - pacto
+  - operator
+  - contracts
+  - kubernetes
+  - validation
+maintainers:
+  - name: edu-diaz
+    url: https://edudiaz.dev
+sources:
+  - https://github.com/trianalab/pacto-operator

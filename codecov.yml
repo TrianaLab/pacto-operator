@@ -1,0 +1,20 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 2%
+    patch:
+      default:
+        target: auto
+        threshold: 2%
+
+ignore:
+  - "test/**"
+  - "hack/**"
+  - "config/**"
+  - "api/v1alpha1/zz_generated.deepcopy.go"
+
+parsers:
+  go:
+    partials_as_hits: true

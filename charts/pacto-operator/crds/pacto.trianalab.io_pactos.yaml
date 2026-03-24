@@ -1,0 +1,658 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: pactos.pacto.trianalab.io
+spec:
+  group: pacto.trianalab.io
+  names:
+    kind: Pacto
+    listKind: PactoList
+    plural: pactos
+    singular: pacto
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.target.serviceName
+      name: Service
+      type: string
+    - jsonPath: .status.contractVersion
+      name: Version
+      type: string
+    - jsonPath: .status.summary.passed
+      name: Passed
+      type: integer
+    - jsonPath: .status.summary.failed
+      name: Failed
+      type: integer
+    - jsonPath: .status.lastReconciledAt
+      name: Last Reconciled
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Pacto is the Schema for the pactos API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of Pacto.
+            properties:
+              checkIntervalSeconds:
+                default: 300
+                description: |-
+                  CheckIntervalSeconds controls how often the reconciler re-checks compliance.
+                  Defaults to 300 (5 minutes).
+                format: int32
+                minimum: 30
+                type: integer
+              contractRef:
+                description: ContractRef specifies where to find the Pacto contract.
+                properties:
+                  inline:
+                    description: Inline allows specifying the contract YAML directly
+                      (for testing/dev).
+                    type: string
+                  oci:
+                    description: |-
+                      OCI is the OCI registry reference for the contract bundle (without tag).
+                      The operator automatically resolves the latest semver tag from the registry.
+                      Example: ghcr.io/org/service-pacto
+                    type: string
+                type: object
+              target:
+                description: |-
+                  Target specifies which Kubernetes resources to observe.
+                  When omitted, the Pacto acts as a reference-only contract (no runtime validation).
+                properties:
+                  serviceName:
+                    description: ServiceName is the name of the Kubernetes Service
+                      to observe.
+                    type: string
+                  workloadRef:
+                    description: |-
+                      WorkloadRef identifies the workload (Deployment, StatefulSet, or ReplicaSet).
+                      If omitted, defaults to name=serviceName, kind=Deployment.
+                    properties:
+                      kind:
+                        default: Deployment
+                        description: Kind of the workload resource.
+                        enum:
+                        - Deployment
+                        - StatefulSet
+                        - ReplicaSet
+                        type: string
+                      name:
+                        description: Name of the workload resource.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+            required:
+            - contractRef
+            type: object
+          status:
+            description: status defines the observed state of Pacto.
+            properties:
+              conditions:
+                description: Conditions represent individual validation checks.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              configuration:
+                description: Configuration describes the contract's configuration
+                  section.
+                properties:
+                  hasSchema:
+                    description: HasSchema indicates whether a JSON Schema file is
+                      bundled.
+                    type: boolean
+                  ref:
+                    description: Ref is the external OCI reference for the configuration
+                      schema, if used.
+                    type: string
+                  secretKeys:
+                    description: SecretKeys lists configuration keys whose values
+                      reference secrets.
+                    items:
+                      type: string
+                    type: array
+                  valueKeys:
+                    description: ValueKeys lists the declared configuration value
+                      keys.
+                    items:
+                      type: string
+                    type: array
+                required:
+                - hasSchema
+                type: object
+              contract:
+                description: Contract exposes parsed contract metadata.
+                properties:
+                  imageRef:
+                    description: ImageRef is the container image reference from the
+                      contract.
+                    type: string
+                  owner:
+                    description: Owner is the team/individual owning this service.
+                    type: string
+                  resolvedRef:
+                    description: |-
+                      ResolvedRef is the fully-resolved OCI reference (with tag/digest).
+                      Empty for inline contracts.
+                    type: string
+                  serviceName:
+                    description: ServiceName is the service name declared in the contract.
+                    type: string
+                  version:
+                    description: Version is the semver version from the contract.
+                    type: string
+                required:
+                - serviceName
+                - version
+                type: object
+              contractVersion:
+                description: |-
+                  ContractVersion is the version from the parsed contract.
+                  Kept for backward compatibility and simple access via JSONPath.
+                type: string
+              currentRevision:
+                description: CurrentRevision is the name of the active PactoRevision.
+                type: string
+              dependencies:
+                description: Dependencies lists the declared dependencies from the
+                  contract.
+                items:
+                  description: DependencyInfo describes a declared dependency.
+                  properties:
+                    compatibility:
+                      description: Compatibility is the semver constraint for the
+                        dependency.
+                      type: string
+                    ref:
+                      description: Ref is the dependency reference (OCI URI).
+                      type: string
+                    required:
+                      description: Required indicates whether this dependency is mandatory.
+                      type: boolean
+                  required:
+                  - ref
+                  - required
+                  type: object
+                type: array
+              endpoints:
+                description: |-
+                  Endpoints describes the runtime probe results for declared health and metrics endpoints.
+                  Only populated when the service exists and the contract declares health/metrics.
+                properties:
+                  health:
+                    description: Health describes the result of probing the declared
+                      health endpoint.
+                    properties:
+                      error:
+                        description: Error is the error message if the probe failed.
+                          Empty on success.
+                        type: string
+                      latencyMs:
+                        description: LatencyMs is the request round-trip time in milliseconds.
+                        format: int64
+                        type: integer
+                      reachable:
+                        description: Reachable indicates whether the HTTP request
+                          completed (no connection error).
+                        type: boolean
+                      statusCode:
+                        description: StatusCode is the HTTP status code returned.
+                          Zero if unreachable.
+                        format: int32
+                        type: integer
+                      url:
+                        description: URL is the fully-constructed endpoint URL that
+                          was probed.
+                        type: string
+                    required:
+                    - reachable
+                    - url
+                    type: object
+                  metrics:
+                    description: Metrics describes the result of probing the declared
+                      metrics endpoint.
+                    properties:
+                      error:
+                        description: Error is the error message if the probe failed.
+                          Empty on success.
+                        type: string
+                      latencyMs:
+                        description: LatencyMs is the request round-trip time in milliseconds.
+                        format: int64
+                        type: integer
+                      reachable:
+                        description: Reachable indicates whether the HTTP request
+                          completed (no connection error).
+                        type: boolean
+                      statusCode:
+                        description: StatusCode is the HTTP status code returned.
+                          Zero if unreachable.
+                        format: int32
+                        type: integer
+                      url:
+                        description: URL is the fully-constructed endpoint URL that
+                          was probed.
+                        type: string
+                    required:
+                    - reachable
+                    - url
+                    type: object
+                type: object
+              interfaces:
+                description: Interfaces lists the parsed interfaces from the contract.
+                items:
+                  description: InterfaceInfo describes a single interface declared
+                    in the contract.
+                  properties:
+                    hasContractFile:
+                      description: |-
+                        HasContractFile indicates whether a contract file (OpenAPI, protobuf, AsyncAPI)
+                        is present in the bundle for this interface.
+                      type: boolean
+                    name:
+                      description: Name is the interface name.
+                      type: string
+                    port:
+                      description: Port is the declared port number.
+                      format: int32
+                      type: integer
+                    type:
+                      description: 'Type is the interface type: http, grpc, or event.'
+                      enum:
+                      - http
+                      - grpc
+                      - event
+                      type: string
+                    visibility:
+                      description: 'Visibility is the declared visibility: public
+                        or internal.'
+                      type: string
+                  required:
+                  - hasContractFile
+                  - name
+                  - type
+                  type: object
+                type: array
+              lastReconciledAt:
+                description: LastReconciledAt is when the last reconciliation completed.
+                format: date-time
+                type: string
+              metadata:
+                additionalProperties:
+                  type: string
+                description: Metadata contains arbitrary key-value pairs from the
+                  contract's metadata section.
+                type: object
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              observedRuntime:
+                description: |-
+                  ObservedRuntime describes the actual runtime state observed from the cluster.
+                  Only populated when a target workload exists.
+                properties:
+                  containerImages:
+                    description: ContainerImages lists the container images from the
+                      pod spec.
+                    items:
+                      type: string
+                    type: array
+                  deploymentStrategy:
+                    description: DeploymentStrategy is the observed strategy (RollingUpdate,
+                      Recreate). Empty for non-Deployments.
+                    type: string
+                  hasEmptyDir:
+                    description: HasEmptyDir indicates whether the workload uses emptyDir
+                      volumes.
+                    type: boolean
+                  hasPVC:
+                    description: HasPVC indicates whether the workload uses PersistentVolumeClaims.
+                    type: boolean
+                  healthProbeInitialDelaySeconds:
+                    description: HealthProbeInitialDelaySeconds is the observed initialDelaySeconds
+                      from the first container's probe.
+                    format: int32
+                    type: integer
+                  podManagementPolicy:
+                    description: PodManagementPolicy is the observed pod management
+                      policy (OrderedReady, Parallel). Empty for non-StatefulSets.
+                    type: string
+                  terminationGracePeriodSeconds:
+                    description: TerminationGracePeriodSeconds is the observed terminationGracePeriodSeconds
+                      from the pod spec.
+                    format: int64
+                    type: integer
+                  workloadKind:
+                    description: WorkloadKind is the actual Kubernetes resource kind
+                      (Deployment, StatefulSet, Job, CronJob).
+                    type: string
+                required:
+                - hasEmptyDir
+                - hasPVC
+                type: object
+              phase:
+                description: Phase is the high-level compliance state.
+                enum:
+                - Healthy
+                - Degraded
+                - Invalid
+                - Reference
+                - Unknown
+                type: string
+              policy:
+                description: Policy describes the contract's policy section.
+                properties:
+                  hasSchema:
+                    description: HasSchema indicates whether a policy schema file
+                      is bundled.
+                    type: boolean
+                  ref:
+                    description: Ref is the external OCI reference for the policy
+                      schema, if used.
+                    type: string
+                required:
+                - hasSchema
+                type: object
+              ports:
+                description: Ports describes the port comparison between contract
+                  and runtime.
+                properties:
+                  expected:
+                    description: Expected lists ports declared in the contract.
+                    items:
+                      format: int32
+                      type: integer
+                    type: array
+                  missing:
+                    description: Missing lists contract ports not found on the Service.
+                    items:
+                      format: int32
+                      type: integer
+                    type: array
+                  observed:
+                    description: Observed lists ports found on the Kubernetes Service.
+                    items:
+                      format: int32
+                      type: integer
+                    type: array
+                  unexpected:
+                    description: Unexpected lists Service ports not declared in the
+                      contract.
+                    items:
+                      format: int32
+                      type: integer
+                    type: array
+                type: object
+              resources:
+                description: Resources describes the existence of target Kubernetes
+                  resources.
+                properties:
+                  service:
+                    description: Service describes the target Service.
+                    properties:
+                      exists:
+                        description: Exists indicates whether the resource was found
+                          in the cluster.
+                        type: boolean
+                      kind:
+                        description: Kind of the resource (only set for workloads).
+                        type: string
+                      name:
+                        description: Name of the resource.
+                        type: string
+                    required:
+                    - exists
+                    - name
+                    type: object
+                  workload:
+                    description: Workload describes the target workload (Deployment/StatefulSet/ReplicaSet).
+                    properties:
+                      exists:
+                        description: Exists indicates whether the resource was found
+                          in the cluster.
+                        type: boolean
+                      kind:
+                        description: Kind of the resource (only set for workloads).
+                        type: string
+                      name:
+                        description: Name of the resource.
+                        type: string
+                    required:
+                    - exists
+                    - name
+                    type: object
+                type: object
+              runtime:
+                description: Runtime describes the contract's runtime section (declared).
+                properties:
+                  dataCriticality:
+                    description: 'DataCriticality is the data criticality level: low,
+                      medium, or high.'
+                    type: string
+                  gracefulShutdownSeconds:
+                    description: GracefulShutdownSeconds is the declared graceful
+                      shutdown period.
+                    format: int32
+                    type: integer
+                  healthInitialDelaySeconds:
+                    description: HealthInitialDelaySeconds is the declared initial
+                      delay before health checks start.
+                    format: int32
+                    type: integer
+                  healthInterface:
+                    description: HealthInterface is the interface used for health
+                      checks.
+                    type: string
+                  healthPath:
+                    description: HealthPath is the HTTP path for health checks.
+                    type: string
+                  metricsInterface:
+                    description: MetricsInterface is the interface used for metrics.
+                    type: string
+                  metricsPath:
+                    description: MetricsPath is the HTTP path for metrics.
+                    type: string
+                  persistenceDurability:
+                    description: 'PersistenceDurability is the durability: ephemeral
+                      or persistent.'
+                    type: string
+                  persistenceScope:
+                    description: 'PersistenceScope is the persistence scope: local
+                      or shared.'
+                    type: string
+                  stateType:
+                    description: 'StateType is the state semantics: stateless, stateful,
+                      or hybrid.'
+                    type: string
+                  upgradeStrategy:
+                    description: 'UpgradeStrategy is the declared upgrade strategy:
+                      rolling, recreate, or ordered.'
+                    type: string
+                  workload:
+                    description: 'Workload is the workload type: service, job, or
+                      scheduled.'
+                    type: string
+                type: object
+              scaling:
+                description: Scaling describes the contract's scaling section.
+                properties:
+                  max:
+                    description: Max is the maximum replica count for autoscaling.
+                    format: int32
+                    type: integer
+                  min:
+                    description: Min is the minimum replica count for autoscaling.
+                    format: int32
+                    type: integer
+                  replicas:
+                    description: Replicas is the exact replica count (mutually exclusive
+                      with Min/Max).
+                    format: int32
+                    type: integer
+                type: object
+              summary:
+                description: Summary provides precomputed check counts.
+                properties:
+                  failed:
+                    description: Failed is the number of checks that failed.
+                    format: int32
+                    type: integer
+                  passed:
+                    description: Passed is the number of checks that passed.
+                    format: int32
+                    type: integer
+                  total:
+                    description: Total is the number of checks performed.
+                    format: int32
+                    type: integer
+                required:
+                - failed
+                - passed
+                - total
+                type: object
+              validation:
+                description: Validation describes the structural validation outcome
+                  of the contract.
+                properties:
+                  errors:
+                    description: Errors lists structural validation errors.
+                    items:
+                      description: ValidationIssue describes a single validation error
+                        or warning.
+                      properties:
+                        code:
+                          description: Code is a machine-readable error code.
+                          type: string
+                        message:
+                          description: Message is a human-readable description of
+                            the issue.
+                          type: string
+                        path:
+                          description: Path is the JSON path to the invalid field.
+                          type: string
+                      required:
+                      - message
+                      type: object
+                    type: array
+                  valid:
+                    description: Valid indicates whether the contract passed structural
+                      validation.
+                    type: boolean
+                  warnings:
+                    description: Warnings lists structural validation warnings.
+                    items:
+                      description: ValidationIssue describes a single validation error
+                        or warning.
+                      properties:
+                        code:
+                          description: Code is a machine-readable error code.
+                          type: string
+                        message:
+                          description: Message is a human-readable description of
+                            the issue.
+                          type: string
+                        path:
+                          description: Path is the JSON path to the invalid field.
+                          type: string
+                      required:
+                      - message
+                      type: object
+                    type: array
+                required:
+                - valid
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

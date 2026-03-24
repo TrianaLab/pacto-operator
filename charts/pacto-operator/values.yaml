@@ -1,0 +1,105 @@
+# -- Number of controller replicas
+replicaCount: 1
+
+image:
+  # -- Controller image repository
+  repository: ghcr.io/trianalab/pacto-operator/pacto-controller
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag (default is the chart appVersion)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the controller
+  create: true
+  # -- Automount API credentials
+  automount: true
+  # -- Annotations to add to the ServiceAccount
+  annotations: {}
+  # -- Name override (defaults to fullname)
+  name: ""
+
+# -- Annotations to add to the controller pod
+podAnnotations: {}
+# -- Labels to add to the controller pod
+podLabels: {}
+
+podSecurityContext:
+  # -- Run pod as non-root
+  runAsNonRoot: true
+  seccompProfile:
+    # -- Seccomp profile type
+    type: RuntimeDefault
+
+securityContext:
+  # -- Disallow privilege escalation
+  allowPrivilegeEscalation: false
+  capabilities:
+    # -- Drop all capabilities
+    drop:
+      - ALL
+  # -- Read-only root filesystem
+  readOnlyRootFilesystem: true
+  # -- Run as non-root
+  runAsNonRoot: true
+  # -- Run as UID 65532 (nonroot in distroless)
+  runAsUser: 65532
+
+resources:
+  limits:
+    # -- CPU limit
+    cpu: 500m
+    # -- Memory limit
+    memory: 128Mi
+  requests:
+    # -- CPU request
+    cpu: 10m
+    # -- Memory request
+    memory: 64Mi
+
+leaderElection:
+  # -- Enable leader election for HA deployments
+  enabled: true
+
+metrics:
+  # -- Enable the metrics endpoint
+  enabled: true
+  # -- Serve metrics over HTTPS
+  secure: true
+  service:
+    # -- Metrics service port
+    port: 8443
+  serviceMonitor:
+    # -- Create a Prometheus ServiceMonitor
+    enabled: false
+    # -- Scrape interval
+    interval: ""
+    # -- Scrape timeout
+    scrapeTimeout: ""
+  prometheusRule:
+    # -- Create PrometheusRule for alerting
+    enabled: false
+
+dashboard:
+  # -- Enable the operator-managed dashboard deployment.
+  # The dashboard image is controlled by the operator and derived from the
+  # bundled Pacto library version. It is not user-configurable.
+  enabled: false
+  # -- Namespace for the dashboard (defaults to release namespace)
+  namespace: ""
+  # -- Optional Secret name for OCI registry credentials (keys: username, password, token)
+  ociSecret: ""
+
+# -- Node selector for the controller pod
+nodeSelector: {}
+# -- Tolerations for the controller pod
+tolerations: []
+# -- Affinity rules for the controller pod
+affinity: {}
