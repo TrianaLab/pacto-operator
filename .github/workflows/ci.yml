@@ -36,6 +36,27 @@ jobs:
           files: cover.out
           fail_ci_if_error: true
 
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v6.3.0
+        with:
+          go-version: '1.25'
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install helm-docs
+        run: |
+          HELM_DOCS_VERSION=1.14.2
+          curl -sSL "https://github.com/norwoodj/helm-docs/releases/download/v${HELM_DOCS_VERSION}/helm-docs_${HELM_DOCS_VERSION}_Linux_x86_64.tar.gz" | tar xz
+          sudo mv helm-docs /usr/local/bin/
+
+      - name: Run chart CI
+        run: make ci-chart
+
   e2e:
     runs-on: ubuntu-latest
     steps:

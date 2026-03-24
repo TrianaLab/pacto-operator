@@ -91,11 +91,47 @@ dashboard:
   # -- Enable the operator-managed dashboard deployment.
   # The dashboard image is controlled by the operator and derived from the
   # bundled Pacto library version. It is not user-configurable.
-  enabled: false
+  enabled: true
   # -- Namespace for the dashboard (defaults to release namespace)
   namespace: ""
   # -- Optional Secret name for OCI registry credentials (keys: username, password, token)
   ociSecret: ""
+  service:
+    # -- Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer).
+    # The operator manages an internal ClusterIP Service (pacto-dashboard) for
+    # pod-to-pod communication. This chart-managed Service provides configurable
+    # external access and serves as the backend for Ingress/HTTPRoute resources.
+    # Selects dashboard pods via operator-defined labels.
+    type: ClusterIP
+    # -- Dashboard service port
+    port: 3000
+    # -- Node port (only used when type is NodePort)
+    nodePort: ""
+  ingress:
+    # -- Enable Ingress for the dashboard
+    enabled: false
+    # -- Ingress class name
+    className: ""
+    # -- Ingress annotations
+    annotations: {}
+    # -- Ingress hosts
+    hosts:
+      - host: pacto-dashboard.local
+        paths:
+          - path: /
+            pathType: Prefix
+    # -- Ingress TLS configuration
+    tls: []
+  httpRoute:
+    # -- Enable Gateway API HTTPRoute for the dashboard
+    enabled: false
+    # -- Parent gateway references
+    parentRefs: []
+    # -- Hostnames for the HTTPRoute
+    hostnames: []
+    # -- HTTPRoute rules. When empty, a single catch-all rule is generated that
+    # routes all traffic to the chart-managed dashboard Service on dashboard.service.port.
+    rules: []
 
 # -- Node selector for the controller pod
 nodeSelector: {}

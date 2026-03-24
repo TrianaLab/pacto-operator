@@ -31,19 +31,13 @@ By participating in this project, you agree to treat all contributors with respe
    go mod download
    ```
 
-3. **Install CRDs into your cluster:**
-
-   ```bash
-   make install
-   ```
-
-4. **Run the full CI pipeline locally:**
+3. **Run the CI pipeline locally:**
 
    ```bash
    make ci
    ```
 
-   This runs everything the CI pipeline checks — formatting, vetting, linting, and tests. **Always run `make ci` before pushing** to catch issues early.
+   This runs static checks, unit/integration tests, and chart validation — the same gates as the `static`, `unit-test`, and `chart` CI jobs. **Always run `make ci` before pushing.**
 
    You can also run individual targets:
 
@@ -52,7 +46,21 @@ By participating in this project, you agree to treat all contributors with respe
    make test         # Unit/integration tests (envtest)
    make test-e2e     # End-to-end tests on a Kind cluster
    make lint         # golangci-lint
-   make run          # Run the controller against current kubeconfig
+   ```
+
+4. **Deploy to a local cluster:**
+
+   ```bash
+   make helm-install   # Build image + helm install (CRDs included)
+   make helm-upgrade   # Rebuild + upgrade existing release
+   make helm-uninstall # Remove release
+   ```
+
+   Or run the controller as a local process (requires CRDs installed first):
+
+   ```bash
+   make install        # Install CRDs via kustomize
+   make run            # Run controller against current kubeconfig
    ```
 
 ## How to Contribute
@@ -114,6 +122,7 @@ The `make ci` target runs all quality gates in order:
 | `ci-vet` | `go vet` passes on all packages |
 | `ci-lint` | `golangci-lint` reports zero issues |
 | `ci-test` | Unit/integration tests pass (envtest) |
+| `ci-chart` | Helm lint, template rendering, unit tests, schema validation, docs drift |
 
 ### Testing
 

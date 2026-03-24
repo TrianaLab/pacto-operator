@@ -56,9 +56,9 @@ func TestReconcile_Disabled_NoResources(t *testing.T) {
 	}
 
 	// Verify no resources were created
-	assertResourceNotFound(t, r.Client, ctx, "test-ns", &appsv1.Deployment{})
-	assertResourceNotFound(t, r.Client, ctx, "test-ns", &corev1.Service{})
-	assertResourceNotFound(t, r.Client, ctx, "test-ns", &corev1.ServiceAccount{})
+	assertResourceNotFound(t, r.Client, ctx, &appsv1.Deployment{})
+	assertResourceNotFound(t, r.Client, ctx, &corev1.Service{})
+	assertResourceNotFound(t, r.Client, ctx, &corev1.ServiceAccount{})
 }
 
 func TestReconcile_Enabled_CreatesResources(t *testing.T) {
@@ -89,7 +89,7 @@ func TestReconcile_Enabled_CreatesResources(t *testing.T) {
 
 	// Verify deployment has correct image
 	deploy := &appsv1.Deployment{}
-	_ = r.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, deploy)
+	_ = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, deploy)
 	if deploy.Spec.Template.Spec.Containers[0].Image != cfg.Image {
 		t.Errorf("expected image %q, got %q", cfg.Image, deploy.Spec.Template.Spec.Containers[0].Image)
 	}
@@ -125,7 +125,7 @@ func TestReconcile_Enabled_UpdatesExistingResources(t *testing.T) {
 
 	// Verify deployment was updated with new image
 	deploy := &appsv1.Deployment{}
-	_ = r.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, deploy)
+	_ = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, deploy)
 	if deploy.Spec.Template.Spec.Containers[0].Image != cfg.Image {
 		t.Errorf("expected updated image %q, got %q", cfg.Image, deploy.Spec.Template.Spec.Containers[0].Image)
 	}
@@ -160,9 +160,9 @@ func TestReconcile_DisabledAfterEnabled_CleansUp(t *testing.T) {
 	}
 
 	// Verify all resources were cleaned up
-	assertResourceNotFound(t, r.Client, ctx, "test-ns", &appsv1.Deployment{})
-	assertResourceNotFound(t, r.Client, ctx, "test-ns", &corev1.Service{})
-	assertResourceNotFound(t, r.Client, ctx, "test-ns", &corev1.ServiceAccount{})
+	assertResourceNotFound(t, r.Client, ctx, &appsv1.Deployment{})
+	assertResourceNotFound(t, r.Client, ctx, &corev1.Service{})
+	assertResourceNotFound(t, r.Client, ctx, &corev1.ServiceAccount{})
 	assertClusterResourceNotFound(t, r.Client, ctx, &rbacv1.ClusterRole{})
 	assertClusterResourceNotFound(t, r.Client, ctx, &rbacv1.ClusterRoleBinding{})
 }
@@ -192,7 +192,7 @@ func TestReconcile_Cleanup_SkipsUnmanagedResources(t *testing.T) {
 
 	// The unmanaged service should still exist
 	svc := &corev1.Service{}
-	err = r.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, svc)
+	err = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, svc)
 	if err != nil {
 		t.Errorf("unmanaged service should not have been deleted: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestReconcile_Idempotent(t *testing.T) {
 
 	// Resources should still exist and be correct
 	deploy := &appsv1.Deployment{}
-	_ = r.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, deploy)
+	_ = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, deploy)
 	if deploy.Spec.Template.Spec.Containers[0].Image != cfg.Image {
 		t.Errorf("expected image %q after idempotent reconcile, got %q", cfg.Image, deploy.Spec.Template.Spec.Containers[0].Image)
 	}
@@ -247,9 +247,9 @@ func assertResourceExists(t *testing.T, c client.Client, ctx context.Context, ke
 	}
 }
 
-func assertResourceNotFound(t *testing.T, c client.Client, ctx context.Context, namespace string, obj client.Object) {
+func assertResourceNotFound(t *testing.T, c client.Client, ctx context.Context, obj client.Object) {
 	t.Helper()
-	key := client.ObjectKey{Namespace: namespace, Name: Name}
+	key := client.ObjectKey{Namespace: "test-ns", Name: Name}
 	err := c.Get(ctx, key, obj)
 	if err == nil {
 		t.Errorf("expected resource %T %v to not exist", obj, key)

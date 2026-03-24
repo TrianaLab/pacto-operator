@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -281,20 +282,14 @@ func assertLabels(t *testing.T, labels map[string]string) {
 
 func assertContains(t *testing.T, slice []string, val string) {
 	t.Helper()
-	for _, s := range slice {
-		if s == val {
-			return
-		}
+	if !slices.Contains(slice, val) {
+		t.Errorf("expected slice to contain %q, got %v", val, slice)
 	}
-	t.Errorf("expected slice to contain %q, got %v", val, slice)
 }
 
 func assertNotContains(t *testing.T, slice []string, val string) {
 	t.Helper()
-	for _, s := range slice {
-		if s == val {
-			t.Errorf("expected slice to not contain %q", val)
-			return
-		}
+	if slices.Contains(slice, val) {
+		t.Errorf("expected slice to not contain %q", val)
 	}
 }

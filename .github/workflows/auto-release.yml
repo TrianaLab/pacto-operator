@@ -9,6 +9,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
 
 jobs:
   release:
@@ -112,6 +113,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push controller image
+        id: build
         uses: docker/build-push-action@v7.0.0
         with:
           context: .
@@ -132,6 +134,14 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.9.1
+
+      - name: Sign controller image
+        run: |
+          cosign sign --yes \
+            ghcr.io/trianalab/pacto-operator/pacto-controller:${{ steps.meta.outputs.version }}@${{ steps.build.outputs.digest }}
+
   helm:
     needs: release
     if: needs.release.outputs.skip != 'true'
@@ -149,14 +159,27 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.9.1
+
       - name: Log in to GitHub Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username ${{ github.actor }} --password-stdin
 
       - name: Package and push Helm chart
+        id: push
         run: |
           version="${{ steps.meta.outputs.version }}"
           # Update chart version and appVersion to match the release
           sed -i "s/^version:.*/version: ${version}/" charts/pacto-operator/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: \"${version}\"/" charts/pacto-operator/Chart.yaml
           helm package charts/pacto-operator
-          helm push pacto-operator-${version}.tgz oci://ghcr.io/trianalab/charts
+          output=$(helm push pacto-operator-${version}.tgz oci://ghcr.io/trianalab/charts 2>&1)
+          echo "$output"
+          digest=$(echo "$output" | grep -oP 'sha256:[a-f0-9]+')
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign Helm chart
+        run: |
+          version="${{ steps.meta.outputs.version }}"
+          cosign sign --yes \
+            ghcr.io/trianalab/charts/pacto-operator:${version}@${{ steps.push.outputs.digest }}

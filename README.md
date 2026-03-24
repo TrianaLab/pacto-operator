@@ -7,23 +7,46 @@
 
 **Kubernetes operator for [Pacto](https://github.com/TrianaLab/pacto) service contract validation at runtime.**
 
-The Pacto Operator watches `Pacto` custom resources in your cluster and continuously validates that running workloads comply with their declared service contracts. It observes deployments, stateful sets, jobs, services, and their runtime properties — then reports compliance status through structured conditions, metrics, and Kubernetes events.
+The Pacto Operator watches `Pacto` custom resources and continuously validates that running workloads comply with their declared service contracts. It observes deployments, stateful sets, jobs, services, and their runtime properties — then reports compliance status through structured conditions, metrics, and Kubernetes events.
 
 The operator is read-only and non-intrusive: it never modifies your workloads. It only reads cluster state and compares it against the contract.
 
 ---
 
+## Why
+
+Service contracts describe how a service should run — workload type, upgrade strategy, probes, images, storage. But nothing enforces these at runtime. Teams declare intent in a contract and deploy separately through Helm or Kustomize, with no feedback loop to detect drift.
+
+The Pacto Operator closes this gap. It reads the contract, observes the live workload, and reports whether they match — continuously, without modifying anything in the cluster.
+
+---
+
 ## Architecture
 
-```
-Pacto CR ──► Loader ──► Validator ──► Status + Metrics
-                            ▲
-              Observer ─────┘
-          (reads K8s resources)
+```mermaid
+flowchart LR
+    subgraph Cluster
+        API[(K8s API)]
+        Workloads[Workloads]
+    end
+
+    subgraph Controller
+        Loader
+        Observer
+        Validator
+    end
+
+    CR[Pacto CR] --> Loader
+    Observer -- reads --> API
+    API -.- Workloads
+    Loader --> Validator
+    Observer --> Validator
+    Validator --> Status[Status + Conditions]
+    Validator --> Metrics[Prometheus Metrics]
 ```
 
 - **Loader** resolves contracts from OCI registries or inline YAML
-- **Observer** reads runtime state (workload kind, strategy, images, probes, storage)
+- **Observer** reads runtime state from the Kubernetes API (workload kind, strategy, images, probes, storage)
 - **Validator** is a pure function: contract + snapshot = result (no side effects)
 - **Controller** coordinates the pipeline and updates CR status, conditions, and metrics
 
@@ -47,15 +70,7 @@ helm install pacto-operator oci://ghcr.io/trianalab/charts/pacto-operator \
   --namespace pacto-operator-system --create-namespace
 ```
 
-Enable the dashboard:
-
-```bash
-helm install pacto-operator oci://ghcr.io/trianalab/charts/pacto-operator \
-  --namespace pacto-operator-system --create-namespace \
-  --set dashboard.enabled=true
-```
-
-See the [chart README](charts/pacto-operator/) for all configuration options.
+The dashboard is enabled by default. See the [chart README](charts/pacto-operator/) for all configuration options including Service type, Ingress, and Gateway API HTTPRoute.
 
 ### Kustomize
 
@@ -97,11 +112,15 @@ make deploy    # Deploy the controller
 | `Pacto` | Declares a contract and optional target workload for runtime validation |
 | `PactoRevision` | Immutable snapshot of a resolved contract version (auto-managed) |
 
+A `Pacto` resource binds a contract (from an OCI registry or inline) to a target workload. On each reconciliation the controller loads the contract, observes the workload's runtime state, runs all six validation checks, and updates the CR status with structured conditions and a summary phase.
+
+A `PactoRevision` is created automatically whenever a new contract version is resolved. Revisions are immutable and owned by their parent `Pacto` resource (garbage collected on deletion).
+
 ## Dashboard
 
-The operator optionally manages a [Pacto dashboard](https://github.com/TrianaLab/pacto) deployment. When enabled, the operator creates and reconciles the dashboard Deployment, Service, ServiceAccount, and RBAC in the cluster.
+The dashboard is enabled by default. The operator manages the dashboard lifecycle: Deployment, internal ClusterIP Service (`pacto-dashboard`), ServiceAccount, and RBAC. The dashboard image is version-locked to the Pacto library bundled into the controller — it is not user-configurable.
 
-The dashboard image version is automatically derived from the Pacto library dependency bundled into the controller. Users enable/disable the dashboard but do not choose the image — it is always version-locked to the controller.
+Network exposure is a chart-level concern, not an operator concern. The Helm chart creates a separate configurable Service for external access, with optional Ingress and Gateway API HTTPRoute support. See the [chart README](charts/pacto-operator/#dashboard) for all options.
 
 ## Metrics
 
@@ -124,6 +143,28 @@ metrics:
 
 Pre-built alerting rules are available in `config/prometheus/alerts.yaml`.
 
+## Artifact Verification
+
+All published artifacts (controller image and Helm chart) are signed with [Cosign](https://docs.sigstore.dev/cosign/overview/) using keyless OIDC signing via GitHub Actions. No pre-shared keys are required — verification uses the OIDC issuer and repository identity.
+
+Verify the controller image:
+
+```bash
+cosign verify \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp 'github\.com/TrianaLab/pacto-operator' \
+  ghcr.io/trianalab/pacto-operator/pacto-controller:<version>
+```
+
+Verify the Helm chart:
+
+```bash
+cosign verify \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp 'github\.com/TrianaLab/pacto-operator' \
+  ghcr.io/trianalab/charts/pacto-operator:<version>
+```
+
 ## Development
 
 ### Prerequisites
@@ -139,10 +180,12 @@ Pre-built alerting rules are available in `config/prometheus/alerts.yaml`.
 ```bash
 make build        # Build the controller binary
 make test         # Run unit/integration tests (envtest)
-make test-e2e     # Run e2e tests on a Kind cluster
-make ci           # Run the full CI pipeline locally
+make ci           # Run static checks + unit tests + chart validation (no cluster required)
+make test-e2e     # Run e2e tests (requires Kind — creates and tears down a cluster)
 make lint         # Run golangci-lint
 ```
+
+`make ci` mirrors the CI pipeline's `static`, `unit-test`, and `chart` jobs. The `e2e` job requires a Kind cluster and runs separately via `make test-e2e`.
 
 ### Local development
 
@@ -155,15 +198,15 @@ make run                    # Operator without dashboard
 make run-with-dashboard     # Operator with dashboard enabled
 ```
 
-**Local Kubernetes** (operator runs inside a Kind cluster as a container):
+**Local Kubernetes** (operator runs inside a local cluster as a container):
 
 ```bash
-make deploy-local                  # Build, load into Kind, deploy (no dashboard)
-make deploy-local-with-dashboard   # Build, load into Kind, deploy with dashboard
-make undeploy-local                # Remove from Kind
+make deploy-local                  # Build, install CRDs, deploy (any kube context)
+make deploy-local-with-dashboard   # Build, install CRDs, deploy with dashboard
+make undeploy-local                # Remove from current kube context
 ```
 
-Local Kubernetes targets automatically build the Docker image, load it into the Kind cluster (`pacto-operator-dev` by default), install CRDs, and deploy the controller. No manual prep steps needed.
+These targets work with any local Kubernetes distribution (Docker Desktop, minikube, Kind, etc.). If you use Kind, run `make kind-load` first so the image is available inside the cluster, or use the convenience target `make deploy-kind` which combines both steps.
 
 The dashboard image is always derived from the Pacto library version in `go.mod` — it is not user-configurable.
 

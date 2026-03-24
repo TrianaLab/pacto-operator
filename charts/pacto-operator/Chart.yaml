@@ -10,8 +10,11 @@ keywords:
   - contracts
   - kubernetes
   - validation
+icon: https://raw.githubusercontent.com/TrianaLab/pacto/refs/heads/main/docs/favicon.ico
 maintainers:
   - name: edu-diaz
     url: https://edudiaz.dev
+    email: edudiazasencio@gmail.com
 sources:
-  - https://github.com/trianalab/pacto-operator
+  - https://github.com/TrianaLab/pacto-operator
+  - https://github.com/TrianaLab/pacto
