@@ -64,6 +64,12 @@ resources:
     # -- Memory request
     memory: 64Mi
 
+controller:
+  # -- Restrict the controller's observation scope to a single namespace.
+  # Empty string (default) means cluster-wide: the controller watches all namespaces.
+  # The dashboard inherits this scope automatically.
+  watchNamespace: ""
+
 leaderElection:
   # -- Enable leader election for HA deployments
   enabled: true
@@ -92,8 +98,6 @@ dashboard:
   # The dashboard image is controlled by the operator and derived from the
   # bundled Pacto library version. It is not user-configurable.
   enabled: true
-  # -- Namespace for the dashboard (defaults to release namespace)
-  namespace: ""
   # -- Optional Secret name for OCI registry credentials (keys: username, password, token)
   ociSecret: ""
   service:

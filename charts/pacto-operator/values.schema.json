@@ -88,6 +88,13 @@
         }
       }
     },
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "watchNamespace": { "type": "string" }
+      }
+    },
     "leaderElection": {
       "type": "object",
       "additionalProperties": false,
@@ -131,7 +138,6 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
-        "namespace": { "type": "string" },
         "ociSecret": { "type": "string" },
         "service": {
           "type": "object",

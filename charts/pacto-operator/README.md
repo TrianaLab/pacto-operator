@@ -150,7 +150,18 @@ dashboard:
       - pacto.example.com
 ```
 
-The dashboard is deployed into the release namespace by default. Override with `dashboard.namespace`.
+The dashboard is always deployed into the release namespace. Its observation scope is inherited from `controller.watchNamespace` — there is no separate dashboard scope configuration.
+
+### Observation Scope
+
+By default, the controller watches **all namespaces**. To restrict it to a single namespace:
+
+```yaml
+controller:
+  watchNamespace: production
+```
+
+The dashboard inherits this scope automatically.
 
 ## Metrics and Observability
 
@@ -205,6 +216,7 @@ cosign verify \
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for the controller pod |
+| controller.watchNamespace | string | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
 | dashboard.enabled | bool | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
 | dashboard.httpRoute.enabled | bool | `false` | Enable Gateway API HTTPRoute for the dashboard |
 | dashboard.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute |
@@ -215,7 +227,6 @@ cosign verify \
 | dashboard.ingress.enabled | bool | `false` | Enable Ingress for the dashboard |
 | dashboard.ingress.hosts | list | `[{"host":"pacto-dashboard.local","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress hosts |
 | dashboard.ingress.tls | list | `[]` | Ingress TLS configuration |
-| dashboard.namespace | string | `""` | Namespace for the dashboard (defaults to release namespace) |
 | dashboard.ociSecret | string | `""` | Optional Secret name for OCI registry credentials (keys: username, password, token) |
 | dashboard.service.nodePort | string | `""` | Node port (only used when type is NodePort) |
 | dashboard.service.port | int | `3000` | Dashboard service port |

@@ -20,10 +20,14 @@ type Config struct {
 	Image string
 
 	// Namespace is the Kubernetes namespace where the dashboard resources are deployed.
-	// Defaults to the operator's own namespace if empty.
+	// Always set to the operator's own namespace.
 	Namespace string
 
-	// OCISecret is the optional name of a Kubernetes Secret (in the dashboard namespace)
+	// WatchNamespace restricts the dashboard's observation scope to a single namespace.
+	// Empty means cluster-wide (all namespaces). Inherited from the controller's --watch-namespace flag.
+	WatchNamespace string
+
+	// OCISecret is the optional name of a Kubernetes Secret (in the operator namespace)
 	// containing OCI registry credentials. If set, the dashboard will use these for
 	// registry access via PACTO_REGISTRY_* environment variables.
 	OCISecret string

@@ -20,24 +20,24 @@ import (
 // enqueueForTarget returns an event handler that maps Service/Workload events
 // to Pacto CRs that target them.
 func enqueueForTarget(c client.Client) handler.EventHandler {
-	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+	return handler.EnqueueRequestsFromMapFunc(mapObjectToPactos(c))
+}
+
+// mapObjectToPactos returns the MapFunc used by enqueueForTarget.
+func mapObjectToPactos(c client.Client) handler.MapFunc {
+	return func(ctx context.Context, obj client.Object) []reconcile.Request {
 		pactoList := &pactov1alpha1.PactoList{}
 		if err := c.List(ctx, pactoList, client.InNamespace(obj.GetNamespace())); err != nil {
 			return nil
 		}
 
 		var requests []reconcile.Request
-		seen := make(map[types.NamespacedName]bool)
 
 		for _, p := range pactoList.Items {
 			nn := types.NamespacedName{Name: p.Name, Namespace: p.Namespace}
-			if seen[nn] {
-				continue
-			}
 
 			// Match by service name
 			if p.Spec.Target.ServiceName == obj.GetName() {
-				seen[nn] = true
 				requests = append(requests, reconcile.Request{NamespacedName: nn})
 				continue
 			}
@@ -45,10 +45,9 @@ func enqueueForTarget(c client.Client) handler.EventHandler {
 			// Match by workload ref name
 			workloadName, _ := p.ResolvedWorkload()
 			if workloadName == obj.GetName() {
-				seen[nn] = true
 				requests = append(requests, reconcile.Request{NamespacedName: nn})
 			}
 		}
 		return requests
-	})
+	}
 }

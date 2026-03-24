@@ -203,3 +203,270 @@ func TestComputePhase_Empty(t *testing.T) {
 		t.Errorf("expected Healthy for empty checks, got %s", phase)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Validate — runtime guard branches not covered in runtime_checks_test.go
+// ---------------------------------------------------------------------------
+
+func TestValidate_LifecycleWithOnlyStrategy(t *testing.T) {
+	c := &contract.Contract{
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			Lifecycle: &contract.Lifecycle{
+				UpgradeStrategy:         "rolling",
+				GracefulShutdownSeconds: nil,
+			},
+		},
+	}
+	snap := &observer.RuntimeSnapshot{
+		WorkloadExists:     true,
+		WorkloadKind:       "Deployment",
+		DeploymentStrategy: "RollingUpdate",
+	}
+
+	result := Validate(c, snap, false)
+
+	// workload + workloadType + stateModel + upgradeStrategy = 4 (no graceful shutdown)
+	if len(result.Checks) != 4 {
+		t.Errorf("expected 4 checks, got %d", len(result.Checks))
+	}
+	for _, ch := range result.Checks {
+		if ch.Name == pactov1alpha1.ConditionGracefulShutdownMatch {
+			t.Error("should not have GracefulShutdownMatch check when GracefulShutdownSeconds is nil")
+		}
+	}
+}
+
+func TestValidate_LifecycleWithOnlyGracefulShutdown(t *testing.T) {
+	gs := 30
+	c := &contract.Contract{
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			Lifecycle: &contract.Lifecycle{
+				UpgradeStrategy:         "",
+				GracefulShutdownSeconds: &gs,
+			},
+		},
+	}
+	snap := &observer.RuntimeSnapshot{
+		WorkloadExists:         true,
+		WorkloadKind:           "Deployment",
+		TerminationGracePeriod: int64Ptr(30),
+	}
+
+	result := Validate(c, snap, false)
+
+	// workload + workloadType + stateModel + gracefulShutdown = 4 (no upgrade strategy)
+	if len(result.Checks) != 4 {
+		t.Errorf("expected 4 checks, got %d", len(result.Checks))
+	}
+	for _, ch := range result.Checks {
+		if ch.Name == pactov1alpha1.ConditionUpgradeStrategyMatch {
+			t.Error("should not have UpgradeStrategyMatch check when UpgradeStrategy is empty")
+		}
+	}
+}
+
+func TestValidate_ImageEmptyRef_NoCheck(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Image: &contract.Image{Ref: ""}},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+		},
+	}
+	snap := &observer.RuntimeSnapshot{
+		WorkloadExists: true,
+		WorkloadKind:   "Deployment",
+	}
+
+	result := Validate(c, snap, false)
+
+	for _, ch := range result.Checks {
+		if ch.Name == pactov1alpha1.ConditionImageMatch {
+			t.Error("should not have ImageMatch check when Image.Ref is empty")
+		}
+	}
+}
+
+func TestValidate_HealthNilSkipsCheck(t *testing.T) {
+	c := &contract.Contract{
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			Health:   nil,
+		},
+	}
+	snap := &observer.RuntimeSnapshot{
+		WorkloadExists: true,
+		WorkloadKind:   "Deployment",
+	}
+
+	result := Validate(c, snap, false)
+
+	for _, ch := range result.Checks {
+		if ch.Name == pactov1alpha1.ConditionHealthTimingMatch {
+			t.Error("should not have HealthTimingMatch check when Health is nil")
+		}
+	}
+}
+
+func TestValidate_HealthInitialDelayNilSkipsCheck(t *testing.T) {
+	c := &contract.Contract{
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			Health:   &contract.Health{InitialDelaySeconds: nil},
+		},
+	}
+	snap := &observer.RuntimeSnapshot{
+		WorkloadExists: true,
+		WorkloadKind:   "Deployment",
+	}
+
+	result := Validate(c, snap, false)
+
+	for _, ch := range result.Checks {
+		if ch.Name == pactov1alpha1.ConditionHealthTimingMatch {
+			t.Error("should not have HealthTimingMatch check when InitialDelaySeconds is nil")
+		}
+	}
+}
+
+func TestValidate_AllRuntimeChecksWithHealth(t *testing.T) {
+	gs := 30
+	delay := 5
+	c := &contract.Contract{
+		Interfaces: []contract.Interface{
+			{Name: "http", Type: "http", Port: intPtr(8080)},
+		},
+		Service: contract.ServiceIdentity{
+			Image: &contract.Image{Ref: "myapp:v1"},
+		},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			State: contract.State{
+				Type:        "stateless",
+				Persistence: contract.Persistence{Durability: ""},
+			},
+			Lifecycle: &contract.Lifecycle{
+				UpgradeStrategy:         "rolling",
+				GracefulShutdownSeconds: &gs,
+			},
+			Health: &contract.Health{
+				InitialDelaySeconds: &delay,
+			},
+		},
+	}
+	snap := &observer.RuntimeSnapshot{
+		ServiceExists:           true,
+		WorkloadExists:          true,
+		WorkloadKind:            "Deployment",
+		ServicePorts:            []int32{8080},
+		DeploymentStrategy:      "RollingUpdate",
+		TerminationGracePeriod:  int64Ptr(30),
+		ContainerImages:         []string{"docker.io/library/myapp:v1"},
+		HealthProbeInitialDelay: int32Ptr(5),
+	}
+
+	result := Validate(c, snap, true)
+
+	if result.Phase != pactov1alpha1.PhaseHealthy {
+		t.Errorf("expected Healthy, got %s", result.Phase)
+	}
+	// 3 base + 6 runtime = 9
+	if len(result.Checks) != 9 {
+		t.Errorf("expected 9 checks, got %d", len(result.Checks))
+		for _, ch := range result.Checks {
+			t.Logf("  %s: passed=%v reason=%s", ch.Name, ch.Passed, ch.Reason)
+		}
+	}
+	for _, ch := range result.Checks {
+		if !ch.Passed {
+			t.Errorf("expected all checks to pass, but %s failed: %s", ch.Name, ch.Message)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// normalizeImageRef — covers all 3 branches
+// ---------------------------------------------------------------------------
+
+func TestNormalizeImageRef_Branches(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  string
+		want string
+	}{
+		{"single name", "nginx", "docker.io/library/nginx"},
+		{"single name with tag", "nginx:1.25", "docker.io/library/nginx:1.25"},
+		{"user/image", "myuser/myapp", "docker.io/myuser/myapp"},
+		{"user/image with tag", "myuser/myapp:v1", "docker.io/myuser/myapp:v1"},
+		{"already fully qualified ghcr", "ghcr.io/org/app:v1", "ghcr.io/org/app:v1"},
+		{"already fully qualified docker.io", "docker.io/library/nginx:latest", "docker.io/library/nginx:latest"},
+		{"quay.io fully qualified", "quay.io/org/image:tag", "quay.io/org/image:tag"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeImageRef(tt.ref)
+			if got != tt.want {
+				t.Errorf("normalizeImageRef(%q) = %q, want %q", tt.ref, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// imageMatches — covers digest stripping and tag stripping branches
+// ---------------------------------------------------------------------------
+
+func TestImageMatches_DigestAndTagStripping(t *testing.T) {
+	tests := []struct {
+		name     string
+		expected string
+		actual   string
+		match    bool
+	}{
+		// Covers the "expected has no tag" + "actual has colon tag" branch (LastIndex stripping)
+		{"no tag expected, actual has tag", "myuser/myapp", "docker.io/myuser/myapp:v1", true},
+		// Covers the "expected has no tag" + "actual has digest" branch (Index @ stripping)
+		{"no tag expected, actual has digest", "myuser/myapp", "docker.io/myuser/myapp@sha256:abc", true},
+		// Covers the "expected has @ digest" early return false
+		{"expected has digest, actual different", "nginx@sha256:abc", "docker.io/library/nginx:latest", false},
+		// Covers repo mismatch after stripping
+		{"no tag expected, repo mismatch", "nginx", "docker.io/library/alpine:latest", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := imageMatches(tt.expected, tt.actual)
+			if got != tt.match {
+				t.Errorf("imageMatches(%q, %q) = %v, want %v", tt.expected, tt.actual, got, tt.match)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// computePhase — covers Degraded from non-resource check failure
+// ---------------------------------------------------------------------------
+
+func TestComputePhase_DegradedNonResource(t *testing.T) {
+	checks := []Check{
+		{Name: pactov1alpha1.ConditionWorkloadExists, Passed: true},
+		{Name: pactov1alpha1.ConditionWorkloadTypeMatch, Passed: false},
+	}
+	phase := computePhase(checks)
+	if phase != pactov1alpha1.PhaseDegraded {
+		t.Errorf("expected Degraded, got %s", phase)
+	}
+}
+
+func TestComputePhase_InvalidOverridesDegraded(t *testing.T) {
+	checks := []Check{
+		{Name: pactov1alpha1.ConditionWorkloadExists, Passed: false},
+		{Name: pactov1alpha1.ConditionWorkloadTypeMatch, Passed: false},
+	}
+	phase := computePhase(checks)
+	if phase != pactov1alpha1.PhaseInvalid {
+		t.Errorf("expected Invalid (resource failure overrides), got %s", phase)
+	}
+}

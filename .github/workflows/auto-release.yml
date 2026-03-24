@@ -190,3 +190,15 @@ jobs:
           version="${{ steps.meta.outputs.version }}"
           cosign sign --yes \
             ghcr.io/trianalab/charts/pacto-operator:${version}@${{ steps.push.outputs.digest }}
+
+      # Publish Artifact Hub repository metadata so the chart is indexed.
+      # This pushes artifacthub-repo.yml as an OCI artifact with the reserved
+      # "artifacthub.io" tag, which Artifact Hub polls for discovery.
+      - name: Install ORAS
+        uses: oras-project/setup-oras@v1
+
+      - name: Push Artifact Hub metadata
+        run: |
+          oras push ghcr.io/trianalab/charts/pacto-operator:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml

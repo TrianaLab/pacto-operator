@@ -37,14 +37,10 @@ tests:
   - it: should include dashboard args when enabled
     set:
       dashboard.enabled: true
-      dashboard.namespace: pacto-system
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--enable-dashboard"
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "--dashboard-namespace=pacto-system"
 
   - it: should not include dashboard args when disabled
     set:
@@ -53,6 +49,21 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].args
           content: "--enable-dashboard"
+
+  - it: should not include watch-namespace by default (cluster-wide)
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--watch-namespace="
+        any: true
+
+  - it: should include watch-namespace when set
+    set:
+      controller.watchNamespace: production
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--watch-namespace=production"
 
   - it: should use custom image tag
     set:

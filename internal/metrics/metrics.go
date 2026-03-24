@@ -35,46 +35,39 @@ var (
 
 func init() {
 	// Create a Prometheus exporter that writes to controller-runtime's registry.
-	exporter, err := otelprom.New(
+	// otelprom.New cannot fail with a non-nil registerer (ctrlmetrics.Registry is always set).
+	exporter := must(otelprom.New(
 		otelprom.WithRegisterer(ctrlmetrics.Registry),
-	)
-	if err != nil {
-		panic("failed to create OTel Prometheus exporter: " + err.Error())
-	}
+	))
+	registerGauges(exporter)
+}
 
-	// Create a MeterProvider with the Prometheus exporter.
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+func registerGauges(exporter sdkmetric.Reader) {
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(exporter))
 	otel.SetMeterProvider(provider)
 
 	meter := provider.Meter(meterName)
 
-	complianceStatus, err = meter.Int64Gauge("pacto_contract_compliance_status",
+	// Int64Gauge never returns an error for valid instrument names (OTel SDK guarantee).
+	complianceStatus, _ = meter.Int64Gauge("pacto_contract_compliance_status",
 		otelmetric.WithDescription("Whether the service is fully compliant with its contract (1=compliant, 0=non-compliant)"),
 	)
-	if err != nil {
-		panic("failed to create compliance_status gauge: " + err.Error())
-	}
-
-	validationErrors, err = meter.Int64Gauge("pacto_contract_validation_errors",
+	validationErrors, _ = meter.Int64Gauge("pacto_contract_validation_errors",
 		otelmetric.WithDescription("Number of error-level contract validation failures"),
 	)
-	if err != nil {
-		panic("failed to create validation_errors gauge: " + err.Error())
-	}
-
-	validationWarns, err = meter.Int64Gauge("pacto_contract_validation_warnings",
+	validationWarns, _ = meter.Int64Gauge("pacto_contract_validation_warnings",
 		otelmetric.WithDescription("Number of warning-level contract validation mismatches"),
 	)
-	if err != nil {
-		panic("failed to create validation_warnings gauge: " + err.Error())
-	}
-
-	validationResult, err = meter.Int64Gauge("pacto_contract_validation_result",
+	validationResult, _ = meter.Int64Gauge("pacto_contract_validation_result",
 		otelmetric.WithDescription("Result of each contract validation check (1=pass, 0=fail)"),
 	)
-	if err != nil {
-		panic("failed to create validation_result gauge: " + err.Error())
-	}
 }
 
 // RecordValidation updates all metrics for a Pacto CR based on validation checks.

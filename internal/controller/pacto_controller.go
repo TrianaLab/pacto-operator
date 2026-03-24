@@ -37,12 +37,18 @@ import (
 	"github.com/trianalab/pacto/pkg/validation"
 )
 
+// ContractLoader abstracts contract loading and tag listing.
+type ContractLoader interface {
+	Load(ctx context.Context, ociRef, inline string) (*loader.LoadResult, error)
+	ListTags(ctx context.Context, ociRef string) ([]string, error)
+}
+
 // PactoReconciler reconciles a Pacto object.
 type PactoReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
-	Loader   *loader.Loader
+	Loader   ContractLoader
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete
@@ -575,8 +581,12 @@ func (r *PactoReconciler) probeOneEndpoint(ctx context.Context, p *prober.Prober
 	}
 
 	url := prober.BuildURL(spec.serviceName, spec.namespace, port, spec.path)
-
 	result := p.Probe(ctx, url)
+	return evaluateProbeResult(result, url, spec)
+}
+
+// evaluateProbeResult translates a prober.Result into a check and endpoint status.
+func evaluateProbeResult(result prober.Result, url string, spec probeSpec) (validator.Check, *pactov1alpha1.EndpointCheckResult) {
 	epResult := &pactov1alpha1.EndpointCheckResult{
 		URL:        url,
 		Reachable:  result.Reachable,

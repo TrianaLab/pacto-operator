@@ -174,6 +174,38 @@ func TestBuildDeployment(t *testing.T) {
 	}
 }
 
+func TestBuildDeploymentWithWatchNamespace(t *testing.T) {
+	cfg := Config{
+		Enabled:        true,
+		Image:          "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace:      "pacto-system",
+		WatchNamespace: "production",
+	}
+	deploy := BuildDeployment(cfg)
+	container := deploy.Spec.Template.Spec.Containers[0]
+
+	envMap := make(map[string]string)
+	for _, e := range container.Env {
+		if e.Value != "" {
+			envMap[e.Name] = e.Value
+		}
+	}
+	if envMap["PACTO_WATCH_NAMESPACE"] != "production" {
+		t.Errorf("expected PACTO_WATCH_NAMESPACE=production, got %q", envMap["PACTO_WATCH_NAMESPACE"])
+	}
+}
+
+func TestBuildDeploymentWithoutWatchNamespace(t *testing.T) {
+	deploy := BuildDeployment(testConfig) // No WatchNamespace
+	container := deploy.Spec.Template.Spec.Containers[0]
+
+	for _, e := range container.Env {
+		if e.Name == "PACTO_WATCH_NAMESPACE" {
+			t.Error("unexpected PACTO_WATCH_NAMESPACE when no watch namespace configured")
+		}
+	}
+}
+
 func TestBuildDeploymentWithOCISecret(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,

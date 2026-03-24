@@ -109,8 +109,13 @@ func getFirstFoundEnvTestBinaryDir() string {
 		return ""
 	}
 	for _, entry := range entries {
-		if entry.IsDir() {
-			return filepath.Join(basePath, entry.Name())
+		if !entry.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(basePath, entry.Name())
+		// Verify the directory contains the expected kube-apiserver binary
+		if _, err := os.Stat(filepath.Join(candidate, "kube-apiserver")); err == nil {
+			return candidate
 		}
 	}
 	return ""

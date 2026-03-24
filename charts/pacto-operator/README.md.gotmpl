@@ -150,7 +150,18 @@ dashboard:
       - pacto.example.com
 ```
 
-The dashboard is deployed into the release namespace by default. Override with `dashboard.namespace`.
+The dashboard is always deployed into the release namespace. Its observation scope is inherited from `controller.watchNamespace` — there is no separate dashboard scope configuration.
+
+### Observation Scope
+
+By default, the controller watches **all namespaces**. To restrict it to a single namespace:
+
+```yaml
+controller:
+  watchNamespace: production
+```
+
+The dashboard inherits this scope automatically.
 
 ## Metrics and Observability
 
