@@ -1,0 +1,525 @@
+# API Reference
+
+## Packages
+- [pacto.trianalab.io/v1alpha1](#pactotrianalabiov1alpha1)
+
+
+## pacto.trianalab.io/v1alpha1
+
+Package v1alpha1 contains API Schema definitions for the pacto v1alpha1 API group.
+
+### Resource Types
+- [Pacto](#pacto)
+- [PactoRevision](#pactorevision)
+
+
+
+#### CheckSummary
+
+
+
+CheckSummary provides precomputed check counts.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `total` _integer_ | Total is the number of checks performed. |  |  |
+| `passed` _integer_ | Passed is the number of checks that passed. |  |  |
+| `failed` _integer_ | Failed is the number of checks that failed. |  |  |
+
+
+#### ConfigurationInfo
+
+
+
+ConfigurationInfo describes the contract's configuration section.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `hasSchema` _boolean_ | HasSchema indicates whether a JSON Schema file is bundled. |  |  |
+| `ref` _string_ | Ref is the external OCI reference for the configuration schema, if used. |  | Optional: \{\} <br /> |
+| `valueKeys` _string array_ | ValueKeys lists the declared configuration value keys. |  | Optional: \{\} <br /> |
+| `secretKeys` _string array_ | SecretKeys lists configuration keys whose values reference secrets. |  | Optional: \{\} <br /> |
+
+
+#### ContractInfo
+
+
+
+ContractInfo exposes parsed contract metadata.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `serviceName` _string_ | ServiceName is the service name declared in the contract. |  |  |
+| `version` _string_ | Version is the semver version from the contract. |  |  |
+| `owner` _string_ | Owner is the team/individual owning this service. |  | Optional: \{\} <br /> |
+| `imageRef` _string_ | ImageRef is the container image reference from the contract. |  | Optional: \{\} <br /> |
+| `resolvedRef` _string_ | ResolvedRef is the fully-resolved OCI reference (with tag/digest).<br />Empty for inline contracts. |  | Optional: \{\} <br /> |
+
+
+#### ContractRef
+
+
+
+ContractRef specifies where to find the Pacto contract.
+
+
+
+_Appears in:_
+- [PactoSpec](#pactospec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `oci` _string_ | OCI is the OCI registry reference for the contract bundle (without tag).<br />The operator automatically resolves the latest semver tag from the registry.<br />Example: ghcr.io/org/service-pacto |  | Optional: \{\} <br /> |
+| `inline` _string_ | Inline allows specifying the contract YAML directly (for testing/dev). |  | Optional: \{\} <br /> |
+
+
+#### DependencyInfo
+
+
+
+DependencyInfo describes a declared dependency.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `ref` _string_ | Ref is the dependency reference (OCI URI). |  |  |
+| `required` _boolean_ | Required indicates whether this dependency is mandatory. |  |  |
+| `compatibility` _string_ | Compatibility is the semver constraint for the dependency. |  | Optional: \{\} <br /> |
+
+
+#### EndpointCheckResult
+
+
+
+EndpointCheckResult describes the result of probing a single HTTP endpoint.
+
+
+
+_Appears in:_
+- [EndpointsStatus](#endpointsstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `url` _string_ | URL is the fully-constructed endpoint URL that was probed. |  |  |
+| `reachable` _boolean_ | Reachable indicates whether the HTTP request completed (no connection error). |  |  |
+| `statusCode` _integer_ | StatusCode is the HTTP status code returned. Zero if unreachable. |  | Optional: \{\} <br /> |
+| `latencyMs` _integer_ | LatencyMs is the request round-trip time in milliseconds. |  | Optional: \{\} <br /> |
+| `error` _string_ | Error is the error message if the probe failed. Empty on success. |  | Optional: \{\} <br /> |
+
+
+#### EndpointsStatus
+
+
+
+EndpointsStatus describes the runtime probe results for declared endpoints.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `health` _[EndpointCheckResult](#endpointcheckresult)_ | Health describes the result of probing the declared health endpoint. |  | Optional: \{\} <br /> |
+| `metrics` _[EndpointCheckResult](#endpointcheckresult)_ | Metrics describes the result of probing the declared metrics endpoint. |  | Optional: \{\} <br /> |
+
+
+#### InterfaceInfo
+
+
+
+InterfaceInfo describes a single interface declared in the contract.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the interface name. |  |  |
+| `type` _string_ | Type is the interface type: http, grpc, or event. |  | Enum: [http grpc event] <br /> |
+| `port` _integer_ | Port is the declared port number. |  | Optional: \{\} <br /> |
+| `visibility` _string_ | Visibility is the declared visibility: public or internal. |  | Optional: \{\} <br /> |
+| `hasContractFile` _boolean_ | HasContractFile indicates whether a contract file (OpenAPI, protobuf, AsyncAPI)<br />is present in the bundle for this interface. |  |  |
+
+
+#### ObservedRuntime
+
+
+
+ObservedRuntime describes the actual runtime state observed from the cluster.
+This complements RuntimeInfo (contract-declared) to enable contract-vs-runtime comparison.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `workloadKind` _string_ | WorkloadKind is the actual Kubernetes resource kind (Deployment, StatefulSet, Job, CronJob). |  | Optional: \{\} <br /> |
+| `deploymentStrategy` _string_ | DeploymentStrategy is the observed strategy (RollingUpdate, Recreate). Empty for non-Deployments. |  | Optional: \{\} <br /> |
+| `podManagementPolicy` _string_ | PodManagementPolicy is the observed pod management policy (OrderedReady, Parallel). Empty for non-StatefulSets. |  | Optional: \{\} <br /> |
+| `terminationGracePeriodSeconds` _integer_ | TerminationGracePeriodSeconds is the observed terminationGracePeriodSeconds from the pod spec. |  | Optional: \{\} <br /> |
+| `containerImages` _string array_ | ContainerImages lists the container images from the pod spec. |  | Optional: \{\} <br /> |
+| `hasPVC` _boolean_ | HasPVC indicates whether the workload uses PersistentVolumeClaims. |  |  |
+| `hasEmptyDir` _boolean_ | HasEmptyDir indicates whether the workload uses emptyDir volumes. |  |  |
+| `healthProbeInitialDelaySeconds` _integer_ | HealthProbeInitialDelaySeconds is the observed initialDelaySeconds from the first container's probe. |  | Optional: \{\} <br /> |
+
+
+#### Pacto
+
+
+
+Pacto is the Schema for the pactos API.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `pacto.trianalab.io/v1alpha1` | | |
+| `kind` _string_ | `Pacto` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `spec` _[PactoSpec](#pactospec)_ | spec defines the desired state of Pacto. |  | Required: \{\} <br /> |
+| `status` _[PactoStatus](#pactostatus)_ | status defines the observed state of Pacto. |  | Optional: \{\} <br /> |
+
+
+#### PactoRevision
+
+
+
+PactoRevision is the Schema for the pactorevisions API.
+It represents an immutable snapshot of a resolved contract version.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `pacto.trianalab.io/v1alpha1` | | |
+| `kind` _string_ | `PactoRevision` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `spec` _[PactoRevisionSpec](#pactorevisionspec)_ | spec defines the desired state of PactoRevision. |  | Required: \{\} <br /> |
+| `status` _[PactoRevisionStatus](#pactorevisionstatus)_ | status defines the observed state of PactoRevision. |  | Optional: \{\} <br /> |
+
+
+#### PactoRevisionSpec
+
+
+
+PactoRevisionSpec defines the desired state of PactoRevision.
+A PactoRevision is an immutable snapshot of a resolved contract version.
+
+
+
+_Appears in:_
+- [PactoRevision](#pactorevision)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `version` _string_ | Version is the contract version (from contract.service.version). |  | MinLength: 1 <br /> |
+| `source` _[RevisionSource](#revisionsource)_ | Source specifies where this revision's contract was loaded from. |  | Required: \{\} <br /> |
+| `pactoRef` _string_ | PactoRef is the name of the parent Pacto resource that owns this revision. |  | MinLength: 1 <br /> |
+| `serviceName` _string_ | ServiceName is the service name from the contract. |  | Optional: \{\} <br /> |
+
+
+#### PactoRevisionStatus
+
+
+
+PactoRevisionStatus defines the observed state of PactoRevision.
+
+
+
+_Appears in:_
+- [PactoRevision](#pactorevision)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `resolved` _boolean_ | Resolved indicates whether this revision has been successfully resolved and parsed. |  |  |
+| `contractHash` _string_ | ContractHash is the SHA-256 hash of the raw contract YAML.<br />Used to detect content changes across versions. |  | Optional: \{\} <br /> |
+| `createdAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#time-v1-meta)_ | CreatedAt is the timestamp when this revision was first resolved. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#condition-v1-meta) array_ | conditions represent the current state of the PactoRevision resource. |  | Optional: \{\} <br /> |
+
+
+#### PactoSpec
+
+
+
+PactoSpec defines the desired state of Pacto.
+
+
+
+_Appears in:_
+- [Pacto](#pacto)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `contractRef` _[ContractRef](#contractref)_ | ContractRef specifies where to find the Pacto contract. |  | Required: \{\} <br /> |
+| `target` _[TargetRef](#targetref)_ | Target specifies which Kubernetes resources to observe.<br />When omitted, the Pacto acts as a reference-only contract (no runtime validation). |  | Optional: \{\} <br /> |
+| `checkIntervalSeconds` _integer_ | CheckIntervalSeconds controls how often the reconciler re-checks compliance.<br />Defaults to 300 (5 minutes). | 300 | Minimum: 30 <br />Optional: \{\} <br /> |
+
+
+#### PactoStatus
+
+
+
+PactoStatus defines the observed state of Pacto.
+All contract data is exposed as structured fields so external consumers
+can read the CR status directly without parsing contracts themselves.
+
+
+
+_Appears in:_
+- [Pacto](#pacto)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `phase` _string_ | Phase is the high-level compliance state. |  | Enum: [Healthy Degraded Invalid Reference Unknown] <br />Optional: \{\} <br /> |
+| `summary` _[CheckSummary](#checksummary)_ | Summary provides precomputed check counts. |  | Optional: \{\} <br /> |
+| `contractVersion` _string_ | ContractVersion is the version from the parsed contract.<br />Kept for backward compatibility and simple access via JSONPath. |  | Optional: \{\} <br /> |
+| `contract` _[ContractInfo](#contractinfo)_ | Contract exposes parsed contract metadata. |  | Optional: \{\} <br /> |
+| `validation` _[ValidationResult](#validationresult)_ | Validation describes the structural validation outcome of the contract. |  | Optional: \{\} <br /> |
+| `resources` _[ResourcesStatus](#resourcesstatus)_ | Resources describes the existence of target Kubernetes resources. |  | Optional: \{\} <br /> |
+| `ports` _[PortStatus](#portstatus)_ | Ports describes the port comparison between contract and runtime. |  | Optional: \{\} <br /> |
+| `endpoints` _[EndpointsStatus](#endpointsstatus)_ | Endpoints describes the runtime probe results for declared health and metrics endpoints.<br />Only populated when the service exists and the contract declares health/metrics. |  | Optional: \{\} <br /> |
+| `interfaces` _[InterfaceInfo](#interfaceinfo) array_ | Interfaces lists the parsed interfaces from the contract. |  | Optional: \{\} <br /> |
+| `configuration` _[ConfigurationInfo](#configurationinfo)_ | Configuration describes the contract's configuration section. |  | Optional: \{\} <br /> |
+| `dependencies` _[DependencyInfo](#dependencyinfo) array_ | Dependencies lists the declared dependencies from the contract. |  | Optional: \{\} <br /> |
+| `policy` _[PolicyInfo](#policyinfo)_ | Policy describes the contract's policy section. |  | Optional: \{\} <br /> |
+| `runtime` _[RuntimeInfo](#runtimeinfo)_ | Runtime describes the contract's runtime section (declared). |  | Optional: \{\} <br /> |
+| `observedRuntime` _[ObservedRuntime](#observedruntime)_ | ObservedRuntime describes the actual runtime state observed from the cluster.<br />Only populated when a target workload exists. |  | Optional: \{\} <br /> |
+| `scaling` _[ScalingInfo](#scalinginfo)_ | Scaling describes the contract's scaling section. |  | Optional: \{\} <br /> |
+| `metadata` _object (keys:string, values:string)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#condition-v1-meta) array_ | Conditions represent individual validation checks. |  | Optional: \{\} <br /> |
+| `currentRevision` _string_ | CurrentRevision is the name of the active PactoRevision. |  | Optional: \{\} <br /> |
+| `lastReconciledAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#time-v1-meta)_ | LastReconciledAt is when the last reconciliation completed. |  | Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | ObservedGeneration is the most recent generation observed by the controller. |  | Optional: \{\} <br /> |
+
+
+#### PolicyInfo
+
+
+
+PolicyInfo describes the contract's policy section.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `hasSchema` _boolean_ | HasSchema indicates whether a policy schema file is bundled. |  |  |
+| `ref` _string_ | Ref is the external OCI reference for the policy schema, if used. |  | Optional: \{\} <br /> |
+
+
+#### PortStatus
+
+
+
+PortStatus describes the port comparison between contract and runtime.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `expected` _integer array_ | Expected lists ports declared in the contract. |  |  |
+| `observed` _integer array_ | Observed lists ports found on the Kubernetes Service. |  |  |
+| `missing` _integer array_ | Missing lists contract ports not found on the Service. |  |  |
+| `unexpected` _integer array_ | Unexpected lists Service ports not declared in the contract. |  |  |
+
+
+#### ResourceStatus
+
+
+
+ResourceStatus describes the observed state of a Kubernetes resource.
+
+
+
+_Appears in:_
+- [ResourcesStatus](#resourcesstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name of the resource. |  |  |
+| `kind` _string_ | Kind of the resource (only set for workloads). |  | Optional: \{\} <br /> |
+| `exists` _boolean_ | Exists indicates whether the resource was found in the cluster. |  |  |
+
+
+#### ResourcesStatus
+
+
+
+ResourcesStatus groups the status of target resources.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `service` _[ResourceStatus](#resourcestatus)_ | Service describes the target Service. |  | Optional: \{\} <br /> |
+| `workload` _[ResourceStatus](#resourcestatus)_ | Workload describes the target workload (Deployment/StatefulSet/ReplicaSet). |  | Optional: \{\} <br /> |
+
+
+#### RevisionSource
+
+
+
+RevisionSource specifies where the contract for this revision was loaded from.
+
+
+
+_Appears in:_
+- [PactoRevisionSpec](#pactorevisionspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `oci` _string_ | OCI is the fully resolved OCI reference (including tag/digest).<br />Example: ghcr.io/org/service-pacto:1.2.0 |  | Optional: \{\} <br /> |
+| `inline` _boolean_ | Inline indicates the contract was provided inline (no external source). |  | Optional: \{\} <br /> |
+
+
+#### RuntimeInfo
+
+
+
+RuntimeInfo describes the contract's runtime section.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `workload` _string_ | Workload is the workload type: service, job, or scheduled. |  | Optional: \{\} <br /> |
+| `stateType` _string_ | StateType is the state semantics: stateless, stateful, or hybrid. |  | Optional: \{\} <br /> |
+| `persistenceScope` _string_ | PersistenceScope is the persistence scope: local or shared. |  | Optional: \{\} <br /> |
+| `persistenceDurability` _string_ | PersistenceDurability is the durability: ephemeral or persistent. |  | Optional: \{\} <br /> |
+| `dataCriticality` _string_ | DataCriticality is the data criticality level: low, medium, or high. |  | Optional: \{\} <br /> |
+| `upgradeStrategy` _string_ | UpgradeStrategy is the declared upgrade strategy: rolling, recreate, or ordered. |  | Optional: \{\} <br /> |
+| `gracefulShutdownSeconds` _integer_ | GracefulShutdownSeconds is the declared graceful shutdown period. |  | Optional: \{\} <br /> |
+| `healthInterface` _string_ | HealthInterface is the interface used for health checks. |  | Optional: \{\} <br /> |
+| `healthPath` _string_ | HealthPath is the HTTP path for health checks. |  | Optional: \{\} <br /> |
+| `metricsInterface` _string_ | MetricsInterface is the interface used for metrics. |  | Optional: \{\} <br /> |
+| `metricsPath` _string_ | MetricsPath is the HTTP path for metrics. |  | Optional: \{\} <br /> |
+| `healthInitialDelaySeconds` _integer_ | HealthInitialDelaySeconds is the declared initial delay before health checks start. |  | Optional: \{\} <br /> |
+
+
+#### ScalingInfo
+
+
+
+ScalingInfo describes the contract's scaling section.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `replicas` _integer_ | Replicas is the exact replica count (mutually exclusive with Min/Max). |  | Optional: \{\} <br /> |
+| `min` _integer_ | Min is the minimum replica count for autoscaling. |  | Optional: \{\} <br /> |
+| `max` _integer_ | Max is the maximum replica count for autoscaling. |  | Optional: \{\} <br /> |
+
+
+#### TargetRef
+
+
+
+TargetRef specifies which Kubernetes resources to observe.
+
+
+
+_Appears in:_
+- [PactoSpec](#pactospec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `serviceName` _string_ | ServiceName is the name of the Kubernetes Service to observe. |  | Optional: \{\} <br /> |
+| `workloadRef` _[WorkloadRef](#workloadref)_ | WorkloadRef identifies the workload (Deployment, StatefulSet, or ReplicaSet).<br />If omitted, defaults to name=serviceName, kind=Deployment. |  | Optional: \{\} <br /> |
+
+
+#### ValidationIssue
+
+
+
+ValidationIssue describes a single validation error or warning.
+
+
+
+_Appears in:_
+- [ValidationResult](#validationresult)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `code` _string_ | Code is a machine-readable error code. |  | Optional: \{\} <br /> |
+| `path` _string_ | Path is the JSON path to the invalid field. |  | Optional: \{\} <br /> |
+| `message` _string_ | Message is a human-readable description of the issue. |  |  |
+
+
+#### ValidationResult
+
+
+
+ValidationResult describes the structural validation outcome of the contract.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `valid` _boolean_ | Valid indicates whether the contract passed structural validation. |  |  |
+| `errors` _[ValidationIssue](#validationissue) array_ | Errors lists structural validation errors. |  | Optional: \{\} <br /> |
+| `warnings` _[ValidationIssue](#validationissue) array_ | Warnings lists structural validation warnings. |  | Optional: \{\} <br /> |
+
+
+#### WorkloadRef
+
+
+
+WorkloadRef identifies a workload resource by name and kind.
+
+
+
+_Appears in:_
+- [TargetRef](#targetref)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name of the workload resource. |  | Required: \{\} <br /> |
+| `kind` _string_ | Kind of the workload resource. | Deployment | Enum: [Deployment StatefulSet ReplicaSet] <br />Optional: \{\} <br /> |
+
+

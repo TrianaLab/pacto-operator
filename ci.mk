@@ -25,7 +25,7 @@ ci-test: envtest setup-envtest
 		fi
 	@rm -f cover.filtered.out
 
-ci-chart: helm-lint helm-template helm-unittest helm-schema helm-docs-check
+ci-chart: helm-lint helm-template helm-unittest helm-schema helm-docs-check api-docs-check
 
 ci-fmt:
 	@echo "==> Checking formatting..."
@@ -70,3 +70,9 @@ helm-docs-check: ## Check that helm-docs output matches committed README.
 	@helm-docs --chart-search-root charts
 	@git diff --exit-code charts/pacto-operator/README.md || \
 		{ echo "Error: Helm chart README is out of date. Run 'make helm-docs' and commit." >&2; exit 1; }
+
+.PHONY: api-docs-check
+api-docs-check: api-docs ## Check that API reference docs match committed output.
+	@echo "==> Checking API docs drift..."
+	@git diff --exit-code docs/api-reference.md || \
+		{ echo "Error: API reference docs are out of date. Run 'make api-docs' and commit." >&2; exit 1; }
