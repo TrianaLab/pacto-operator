@@ -238,6 +238,10 @@ helm-docs: ## Generate Helm chart documentation with helm-docs.
 	@command -v helm-docs >/dev/null 2>&1 || { echo "helm-docs not installed: go install github.com/norwoodj/helm-docs/cmd/helm-docs@latest"; exit 1; }
 	helm-docs --chart-search-root charts
 
+.PHONY: api-docs
+api-docs: crd-ref-docs ## Generate CRD API reference documentation.
+	"$(CRD_REF_DOCS)" --source-path=./api/v1alpha1 --config=./hack/api-docs-config.yaml --renderer=markdown --output-path=./docs/api-reference.md
+
 .PHONY: helm-lint
 helm-lint: ## Lint the Helm chart.
 	helm lint charts/pacto-operator
@@ -350,10 +354,12 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 HELM_UNITTEST ?= $(LOCALBIN)/helm-unittest
+CRD_REF_DOCS ?= $(LOCALBIN)/crd-ref-docs
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
+CRD_REF_DOCS_VERSION ?= v0.3.0
 
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_VERSION manually (controller-runtime replace has no tag)" >&2; exit 1; }; \
@@ -397,6 +403,11 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 		$(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
 		mv -f $(LOCALBIN)/golangci-lint-custom $(GOLANGCI_LINT); \
 	} || true
+
+.PHONY: crd-ref-docs
+crd-ref-docs: $(CRD_REF_DOCS) ## Download crd-ref-docs locally if necessary.
+$(CRD_REF_DOCS): $(LOCALBIN)
+	$(call go-install-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs,$(CRD_REF_DOCS_VERSION))
 
 .PHONY: helm-unittest-install
 helm-unittest-install: $(HELM_UNITTEST) ## Download helm-unittest locally if necessary.
