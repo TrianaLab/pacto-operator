@@ -17,8 +17,10 @@ spec:
 ---
 ##
 ## Per-service Pacto CRs — enable runtime validation against live workloads.
-## Each points to its OCI contract and targets the corresponding workload.
+## Inline contracts ensure the demo is self-contained and reproducible.
 ##
+
+## frontend — public web UI, depends on api-gateway
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -29,13 +31,48 @@ metadata:
     pacto.trianalab.com/service: frontend
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/frontend
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: frontend
+        version: "1.0.0"
+        owner: frontend-team
+        image:
+          ref: "ghcr.io/trianalab/pacto-demo/frontend:latest"
+      interfaces:
+        - name: http
+          type: http
+          port: 3000
+          visibility: public
+      dependencies:
+        - ref: oci://ghcr.io/trianalab/pacto-demo/api-gateway
+          required: true
+          compatibility: "^1.0.0"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: low
+        lifecycle:
+          upgradeStrategy: rolling
+          gracefulShutdownSeconds: 15
+      scaling:
+        min: 2
+        max: 4
+      metadata:
+        team: frontend
+        tier: standard
+        layer: edge
   target:
     serviceName: frontend
     workloadRef:
       name: frontend
       kind: Deployment
 ---
+## api-gateway — public edge proxy, routes to domain services
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -46,13 +83,59 @@ metadata:
     pacto.trianalab.com/service: api-gateway
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/api-gateway
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: api-gateway
+        version: "1.1.0"
+        owner: platform-team
+        image:
+          ref: "ghcr.io/trianalab/pacto-demo/api-gateway:latest"
+      interfaces:
+        - name: http
+          type: http
+          port: 8080
+          visibility: public
+      dependencies:
+        - ref: oci://ghcr.io/trianalab/pacto-demo/auth-service
+          required: true
+          compatibility: "^1.0.0"
+        - ref: oci://ghcr.io/trianalab/pacto-demo/orders-service
+          required: true
+          compatibility: "^1.0.0"
+        - ref: oci://ghcr.io/trianalab/pacto-demo/payments-service
+          required: true
+          compatibility: "^2.0.0"
+      configuration:
+        schema: config-schema.json
+        values:
+          RATE_LIMIT_RPS: "1000"
+          REQUEST_TIMEOUT_MS: "5000"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: low
+        lifecycle:
+          upgradeStrategy: rolling
+          gracefulShutdownSeconds: 30
+      scaling:
+        min: 2
+        max: 6
+      metadata:
+        team: platform
+        tier: critical
+        layer: edge
   target:
     serviceName: api-gateway
     workloadRef:
       name: api-gateway
       kind: Deployment
 ---
+## auth-service — identity and access management
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -63,13 +146,58 @@ metadata:
     pacto.trianalab.com/service: auth-service
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/auth-service
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: auth-service
+        version: "1.0.0"
+        owner: identity-team
+        image:
+          ref: "ghcr.io/trianalab/pacto-demo/auth-service:latest"
+      interfaces:
+        - name: http
+          type: http
+          port: 8081
+          visibility: internal
+        - name: grpc
+          type: grpc
+          port: 9091
+          visibility: internal
+          contract: openapi.yaml
+      dependencies:
+        - ref: oci://ghcr.io/trianalab/pacto-demo/redis
+          required: true
+          compatibility: "^7.0.0"
+      configuration:
+        schema: config-schema.json
+        values:
+          JWT_SECRET: "secret://vault/auth/jwt-secret"
+          TOKEN_EXPIRY_SECONDS: "3600"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: medium
+        lifecycle:
+          upgradeStrategy: rolling
+          gracefulShutdownSeconds: 30
+      scaling:
+        min: 2
+        max: 4
+      metadata:
+        team: identity
+        tier: critical
+        layer: domain
   target:
     serviceName: auth-service
     workloadRef:
       name: auth-service
       kind: Deployment
 ---
+## orders-service — order lifecycle management
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -80,13 +208,58 @@ metadata:
     pacto.trianalab.com/service: orders-service
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/orders-service
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: orders-service
+        version: "1.1.0"
+        owner: commerce-team
+        image:
+          ref: "ghcr.io/trianalab/pacto-demo/orders-service:latest"
+      interfaces:
+        - name: http
+          type: http
+          port: 8082
+          visibility: internal
+      dependencies:
+        - ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+          required: true
+          compatibility: "^16.0.0"
+      configuration:
+        schema: config-schema.json
+        values:
+          ORDERS_DB_URL: "postgresql://orders:secret@postgresql:5432/orders"
+          ORDER_RETENTION_DAYS: "365"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: medium
+        lifecycle:
+          upgradeStrategy: rolling
+          gracefulShutdownSeconds: 30
+      scaling:
+        min: 2
+        max: 4
+      metadata:
+        team: commerce
+        tier: standard
+        layer: domain
   target:
     serviceName: orders-service
     workloadRef:
       name: orders-service
       kind: Deployment
 ---
+## payments-service — payment processing (INTENTIONAL DRIFT)
+##
+## The payments team published contract v2.0.0 (new payment intents API,
+## breaking change from v1.x charges API), but the deployment still runs
+## the old image. This is the demo's primary failure: contract drift.
+##
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -97,13 +270,57 @@ metadata:
     pacto.trianalab.com/service: payments-service
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/payments-service
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: payments-service
+        version: "2.0.0"
+        owner: payments-team
+        image:
+          ref: "ghcr.io/trianalab/pacto-demo/payments-service:2.0.0"
+      interfaces:
+        - name: http
+          type: http
+          port: 8083
+          visibility: internal
+      dependencies:
+        - ref: oci://ghcr.io/trianalab/pacto-demo/postgresql
+          required: true
+          compatibility: "^16.0.0"
+        - ref: oci://ghcr.io/trianalab/pacto-demo/fraud-service
+          required: true
+          compatibility: "^1.0.0"
+      configuration:
+        schema: config-schema.json
+        values:
+          STRIPE_SECRET_KEY: "secret://vault/payments/stripe-secret-key"
+          WEBHOOK_SIGNING_SECRET: "secret://vault/payments/webhook-signing-secret"
+          PCI_AUDIT_LOG: "true"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: high
+        lifecycle:
+          upgradeStrategy: rolling
+          gracefulShutdownSeconds: 60
+      scaling:
+        min: 3
+        max: 8
+      metadata:
+        team: payments
+        tier: critical
+        layer: domain
   target:
     serviceName: payments-service
     workloadRef:
       name: payments-service
       kind: Deployment
 ---
+## fraud-service — real-time fraud scoring
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -114,13 +331,53 @@ metadata:
     pacto.trianalab.com/service: fraud-service
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/fraud-service
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: fraud-service
+        version: "1.0.0"
+        owner: risk-team
+        image:
+          ref: "ghcr.io/trianalab/pacto-demo/fraud-service:latest"
+      interfaces:
+        - name: http
+          type: http
+          port: 8084
+          visibility: internal
+      dependencies:
+        - ref: oci://ghcr.io/trianalab/pacto-demo/redis
+          required: true
+          compatibility: "^7.0.0"
+      configuration:
+        schema: config-schema.json
+        values:
+          FRAUD_SCORE_THRESHOLD: "0.7"
+          MODEL_REFRESH_INTERVAL_SECONDS: "300"
+      runtime:
+        workload: service
+        state:
+          type: stateless
+          persistence:
+            scope: local
+            durability: ephemeral
+          dataCriticality: medium
+        lifecycle:
+          upgradeStrategy: rolling
+          gracefulShutdownSeconds: 30
+      scaling:
+        min: 2
+        max: 4
+      metadata:
+        team: risk
+        tier: standard
+        layer: domain
   target:
     serviceName: fraud-service
     workloadRef:
       name: fraud-service
       kind: Deployment
 ---
+## postgresql — primary relational database
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -131,13 +388,44 @@ metadata:
     pacto.trianalab.com/service: postgresql
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/postgresql
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: postgresql
+        version: "16.0.0"
+        owner: infra/databases
+        image:
+          ref: "docker.io/library/postgres:16"
+      interfaces:
+        - name: sql
+          type: grpc
+          port: 5432
+          visibility: internal
+          contract: openapi.yaml
+      runtime:
+        workload: service
+        state:
+          type: stateful
+          persistence:
+            scope: local
+            durability: persistent
+          dataCriticality: high
+        lifecycle:
+          upgradeStrategy: ordered
+          gracefulShutdownSeconds: 120
+      scaling:
+        replicas: 1
+      metadata:
+        team: infrastructure
+        tier: critical
+        layer: infrastructure
   target:
     serviceName: postgresql
     workloadRef:
       name: postgresql
       kind: StatefulSet
 ---
+## redis — in-memory cache and session store
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -148,13 +436,44 @@ metadata:
     pacto.trianalab.com/service: redis
 spec:
   contractRef:
-    oci: ghcr.io/trianalab/pacto-demo/redis
+    inline: |
+      pactoVersion: "1.0"
+      service:
+        name: redis
+        version: "7.2.0"
+        owner: infra/caching
+        image:
+          ref: "docker.io/library/redis:7"
+      interfaces:
+        - name: tcp
+          type: grpc
+          port: 6379
+          visibility: internal
+          contract: openapi.yaml
+      runtime:
+        workload: service
+        state:
+          type: stateful
+          persistence:
+            scope: local
+            durability: persistent
+          dataCriticality: medium
+        lifecycle:
+          upgradeStrategy: ordered
+          gracefulShutdownSeconds: 60
+      scaling:
+        replicas: 1
+      metadata:
+        team: infrastructure
+        tier: standard
+        layer: infrastructure
   target:
     serviceName: redis
     workloadRef:
       name: redis
       kind: StatefulSet
 ---
+## notification-worker — scheduled batch processor (no target, reference only)
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
