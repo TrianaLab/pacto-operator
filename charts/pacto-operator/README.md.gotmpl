@@ -92,6 +92,31 @@ The chart creates a separate exposure Service (`<release>-pacto-operator-dashboa
 | Ingress | Chart | Optional, references the chart-managed Service |
 | HTTPRoute | Chart | Optional, references the chart-managed Service. When `rules` is empty, a catch-all rule routes all traffic to the dashboard |
 
+### Private OCI Registries
+
+If your contracts are stored in a private OCI registry, create a Secret with the registry credentials and reference it via `dashboard.ociSecret`. The Secret must contain the following keys:
+
+| Key | Description |
+|-----|-------------|
+| `username` | Registry username |
+| `password` | Registry password |
+| `token` | Registry token (used instead of username/password when supported) |
+
+```bash
+kubectl create secret generic oci-creds \
+  --from-literal=username=myuser \
+  --from-literal=password=mypass \
+  --from-literal=token="" \
+  -n pacto-operator-system
+```
+
+```yaml
+dashboard:
+  ociSecret: oci-creds
+```
+
+The operator passes this Secret name to the dashboard pod, which uses the credentials to authenticate when pulling contract bundles. If omitted, the dashboard assumes public (unauthenticated) access.
+
 To disable the dashboard:
 
 ```yaml

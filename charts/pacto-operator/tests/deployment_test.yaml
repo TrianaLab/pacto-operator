@@ -28,6 +28,16 @@ tests:
           path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
           value: false
 
+  - it: should set POD_NAMESPACE from downward API
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+
   - it: should include leader-elect arg
     asserts:
       - contains:

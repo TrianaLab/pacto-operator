@@ -208,6 +208,61 @@ func TestReconcile_Cleanup_NoErrorWhenNoResources(t *testing.T) {
 	}
 }
 
+func TestReconcile_PreservesExternalLabelsAndAnnotations(t *testing.T) {
+	cfg := Config{
+		Enabled:   true,
+		Image:     "ghcr.io/trianalab/pacto-dashboard:0.25.0",
+		Namespace: "test-ns",
+	}
+
+	// Pre-create a deployment with external labels/annotations (e.g. from ArgoCD)
+	deploy := BuildDeployment(cfg)
+	deploy.Labels["argocd.argoproj.io/instance"] = "pacto"
+	deploy.Annotations = map[string]string{
+		"argocd.argoproj.io/tracking-id": "some-tracking-id",
+	}
+
+	svc := BuildService(cfg)
+	svc.Annotations = map[string]string{
+		"external.io/managed": "true",
+	}
+
+	r := newReconciler(cfg,
+		BuildServiceAccount(cfg),
+		BuildClusterRole(),
+		BuildClusterRoleBinding(cfg),
+		deploy,
+		svc,
+	)
+	ctx := context.Background()
+
+	_, err := r.Reconcile(ctx, ctrl.Request{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify external labels are preserved on the deployment
+	got := &appsv1.Deployment{}
+	_ = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, got)
+	if got.Labels["argocd.argoproj.io/instance"] != "pacto" {
+		t.Error("expected external label to be preserved on deployment")
+	}
+	if got.Annotations["argocd.argoproj.io/tracking-id"] != "some-tracking-id" {
+		t.Error("expected external annotation to be preserved on deployment")
+	}
+	// Operator labels should still be present
+	if got.Labels[LabelManagedBy] != ManagedByValue {
+		t.Error("expected operator label to still be present")
+	}
+
+	// Verify external annotations are preserved on the service
+	gotSvc := &corev1.Service{}
+	_ = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, gotSvc)
+	if gotSvc.Annotations["external.io/managed"] != "true" {
+		t.Error("expected external annotation to be preserved on service")
+	}
+}
+
 func TestReconcile_Idempotent(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,

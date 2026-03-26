@@ -83,11 +83,11 @@ check-dashboard-image:
 
 .PHONY: run
 run: manifests generate fmt vet ## Run the operator locally (no dashboard).
-	go run $(LDFLAGS) ./cmd/main.go
+	POD_NAMESPACE=default go run $(LDFLAGS) ./cmd/main.go
 
 .PHONY: run-with-dashboard
 run-with-dashboard: manifests generate fmt vet check-dashboard-image ## Run the operator locally with the dashboard enabled.
-	go run $(LDFLAGS) ./cmd/main.go --enable-dashboard
+	POD_NAMESPACE=default go run $(LDFLAGS) ./cmd/main.go --enable-dashboard
 
 ##@ Development — Local Kubernetes
 

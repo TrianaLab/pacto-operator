@@ -240,7 +240,8 @@ func main() {
 	// Dashboard feature toggle — always deployed to the operator's own namespace.
 	dashboardNamespace := os.Getenv("POD_NAMESPACE")
 	if dashboardNamespace == "" {
-		dashboardNamespace = "pacto-operator-system"
+		setupLog.Error(nil, "POD_NAMESPACE environment variable must be set (use the downward API)")
+		os.Exit(1)
 	}
 
 	if enableDashboard && dashboardImage == "" {

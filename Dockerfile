@@ -19,7 +19,7 @@ RUN go mod download
 COPY . .
 
 # Build with version metadata injected via ldflags
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
     -ldflags "-s -w \
       -X main.version=${VERSION} \
       -X main.gitCommit=${GIT_COMMIT} \

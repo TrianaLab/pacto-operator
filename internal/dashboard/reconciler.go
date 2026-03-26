@@ -10,6 +10,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -162,6 +163,8 @@ func (r *Reconciler) reconcileService(ctx context.Context) error {
 }
 
 // applyResource creates or updates a resource, preserving the resource version for updates.
+// It merges labels and annotations so that external controllers (e.g. ArgoCD) can add
+// their own metadata without being wiped on every reconciliation.
 func (r *Reconciler) applyResource(ctx context.Context, desired client.Object, existing client.Object) error {
 	key := client.ObjectKeyFromObject(desired)
 	err := r.Get(ctx, key, existing)
@@ -176,7 +179,18 @@ func (r *Reconciler) applyResource(ctx context.Context, desired client.Object, e
 	desired.SetResourceVersion(existing.GetResourceVersion())
 	// Preserve UID to avoid issues
 	desired.SetUID(existing.GetUID())
+	// Merge labels and annotations so external metadata (e.g. ArgoCD tracking) is preserved
+	desired.SetLabels(mergeMap(existing.GetLabels(), desired.GetLabels()))
+	desired.SetAnnotations(mergeMap(existing.GetAnnotations(), desired.GetAnnotations()))
 	return r.Update(ctx, desired)
+}
+
+// mergeMap returns a new map with all entries from base, overridden by entries from overlay.
+func mergeMap(base, overlay map[string]string) map[string]string {
+	merged := make(map[string]string, len(base)+len(overlay))
+	maps.Copy(merged, base)
+	maps.Copy(merged, overlay)
+	return merged
 }
 
 // cleanup deletes all dashboard resources owned by the operator.
