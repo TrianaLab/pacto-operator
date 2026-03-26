@@ -31,6 +31,10 @@ type Config struct {
 	// containing OCI registry credentials. If set, the dashboard will use these for
 	// registry access via PACTO_REGISTRY_* environment variables.
 	OCISecret string
+
+	// CacheEnabled controls whether an emptyDir volume is mounted at
+	// /home/nonroot/.cache/pacto for OCI bundle caching. Enabled by default.
+	CacheEnabled bool
 }
 
 // Validate checks that the config is valid when the feature is enabled.

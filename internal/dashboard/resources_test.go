@@ -15,9 +15,10 @@ import (
 )
 
 var testConfig = Config{
-	Enabled:   true,
-	Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
-	Namespace: "pacto-system",
+	Enabled:      true,
+	Image:        "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+	Namespace:    "pacto-system",
+	CacheEnabled: true,
 }
 
 func TestBuildServiceAccount(t *testing.T) {
@@ -161,6 +162,29 @@ func TestBuildDeployment(t *testing.T) {
 		t.Errorf("expected service account %q, got %q", Name, deploy.Spec.Template.Spec.ServiceAccountName)
 	}
 
+	// Check cache volume mount
+	if len(container.VolumeMounts) != 1 {
+		t.Fatalf("expected 1 volume mount, got %d", len(container.VolumeMounts))
+	}
+	if container.VolumeMounts[0].Name != "cache" {
+		t.Errorf("expected volume mount name %q, got %q", "cache", container.VolumeMounts[0].Name)
+	}
+	if container.VolumeMounts[0].MountPath != "/home/nonroot/.cache/pacto" {
+		t.Errorf("expected mount path %q, got %q", "/home/nonroot/.cache/pacto", container.VolumeMounts[0].MountPath)
+	}
+
+	// Check cache volume
+	volumes := deploy.Spec.Template.Spec.Volumes
+	if len(volumes) != 1 {
+		t.Fatalf("expected 1 volume, got %d", len(volumes))
+	}
+	if volumes[0].Name != "cache" {
+		t.Errorf("expected volume name %q, got %q", "cache", volumes[0].Name)
+	}
+	if volumes[0].EmptyDir == nil {
+		t.Error("expected emptyDir volume source")
+	}
+
 	// Check env vars
 	envMap := make(map[string]string)
 	for _, e := range container.Env {
@@ -174,11 +198,42 @@ func TestBuildDeployment(t *testing.T) {
 	}
 }
 
+func TestBuildDeploymentWithCacheDisabled(t *testing.T) {
+	cfg := Config{
+		Enabled:      true,
+		Image:        "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace:    "pacto-system",
+		CacheEnabled: false,
+	}
+	deploy := BuildDeployment(cfg)
+	container := deploy.Spec.Template.Spec.Containers[0]
+
+	// No volume mounts
+	if len(container.VolumeMounts) != 0 {
+		t.Errorf("expected no volume mounts, got %d", len(container.VolumeMounts))
+	}
+
+	// No volumes
+	if len(deploy.Spec.Template.Spec.Volumes) != 0 {
+		t.Errorf("expected no volumes, got %d", len(deploy.Spec.Template.Spec.Volumes))
+	}
+
+	// PACTO_NO_CACHE env var should be set
+	envMap := make(map[string]string)
+	for _, e := range container.Env {
+		envMap[e.Name] = e.Value
+	}
+	if envMap["PACTO_NO_CACHE"] != "1" {
+		t.Error("expected PACTO_NO_CACHE=1 when cache is disabled")
+	}
+}
+
 func TestBuildDeploymentWithWatchNamespace(t *testing.T) {
 	cfg := Config{
 		Enabled:        true,
 		Image:          "ghcr.io/trianalab/pacto-dashboard:0.24.2",
 		Namespace:      "pacto-system",
+		CacheEnabled:   true,
 		WatchNamespace: "production",
 	}
 	deploy := BuildDeployment(cfg)
@@ -208,10 +263,11 @@ func TestBuildDeploymentWithoutWatchNamespace(t *testing.T) {
 
 func TestBuildDeploymentWithOCISecret(t *testing.T) {
 	cfg := Config{
-		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
-		Namespace: "pacto-system",
-		OCISecret: "registry-creds",
+		Enabled:      true,
+		Image:        "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace:    "pacto-system",
+		CacheEnabled: true,
+		OCISecret:    "registry-creds",
 	}
 	deploy := BuildDeployment(cfg)
 	container := deploy.Spec.Template.Spec.Containers[0]

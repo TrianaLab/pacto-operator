@@ -100,6 +100,9 @@ dashboard:
   enabled: true
   # -- Optional Secret name for OCI registry credentials (keys: username, password, token)
   ociSecret: ""
+  cache:
+    # -- Mount an emptyDir volume for OCI bundle caching in the dashboard pod.
+    enabled: true
   service:
     # -- Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer).
     # The operator manages an internal ClusterIP Service (pacto-dashboard) for

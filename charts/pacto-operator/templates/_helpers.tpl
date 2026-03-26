@@ -79,5 +79,8 @@ Controller arguments derived from values
 {{- if .Values.dashboard.ociSecret }}
 - --dashboard-oci-secret={{ .Values.dashboard.ociSecret }}
 {{- end }}
+{{- if not .Values.dashboard.cache.enabled }}
+- --dashboard-cache=false
+{{- end }}
 {{- end }}
 {{- end }}
