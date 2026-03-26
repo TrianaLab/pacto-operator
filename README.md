@@ -7,19 +7,31 @@
 
 # Pacto Operator
 
-**Kubernetes operator for [Pacto](https://github.com/TrianaLab/pacto) service contract validation at runtime.**
+**Kubernetes operator that checks whether running workloads match their declared [Pacto](https://github.com/TrianaLab/pacto) service contracts.**
 
-The Pacto Operator watches `Pacto` custom resources and continuously validates that running workloads comply with their declared service contracts. It observes deployments, stateful sets, jobs, services, and their runtime properties — then reports compliance status through structured conditions, metrics, and Kubernetes events.
+The operator watches `Pacto` custom resources, reads the referenced contract, observes the live workload, and reports whether they align. It is read-only and non-intrusive — it never modifies your workloads.
 
-The operator is read-only and non-intrusive: it never modifies your workloads. It only reads cluster state and compares it against the contract.
+---
+
+## Where it fits
+
+[Pacto](https://github.com/TrianaLab/pacto) is a service contract system. Three components cover the full lifecycle:
+
+| Component | Role |
+|-----------|------|
+| [**CLI**](https://github.com/TrianaLab/pacto) | Author, validate, diff, and publish contracts to OCI registries |
+| **Operator** (this repo) | Continuously check runtime alignment between contracts and live workloads |
+| [**Dashboard**](https://github.com/TrianaLab/pacto-dashboard) | Visualize the service graph, dependency tree, and compliance status |
+
+The CLI is the authoring tool. The operator is the runtime feedback loop. The dashboard makes the results visible.
 
 ---
 
 ## Why
 
-Service contracts describe how a service should run — workload type, upgrade strategy, probes, images, storage. But nothing enforces these at runtime. Teams declare intent in a contract and deploy separately through Helm or Kustomize, with no feedback loop to detect drift.
+Teams declare intent in a contract — workload type, upgrade strategy, images, probes, storage — and deploy separately through Helm or Kustomize. Nothing connects those two sides at runtime. Contracts drift from reality silently.
 
-The Pacto Operator closes this gap. It reads the contract, observes the live workload, and reports whether they match — continuously, without modifying anything in the cluster.
+The operator closes this gap. It reads the contract, observes the live workload, and reports whether they match. Continuously, without modifying anything.
 
 ---
 
@@ -47,21 +59,83 @@ flowchart LR
     Validator --> Metrics[Prometheus Metrics]
 ```
 
-- **Loader** resolves contracts from OCI registries or inline YAML
-- **Observer** reads runtime state from the Kubernetes API (workload kind, strategy, images, probes, storage)
-- **Validator** is a pure function: contract + snapshot = result (no side effects)
-- **Controller** coordinates the pipeline and updates CR status, conditions, and metrics
+Each reconciliation follows a fixed pipeline:
 
-Six runtime checks run on each reconciliation:
+1. **Loader** resolves the contract from an OCI registry (auto-selecting the highest semver tag) or parses inline YAML.
+2. **Observer** reads runtime state from the Kubernetes API — workload kind, strategy, images, probes, volumes, termination grace period.
+3. **Validator** is a pure function: `(contract, snapshot) → result`. No side effects.
+4. **Controller** coordinates the pipeline, creates `PactoRevision` snapshots for each resolved version, and updates the CR status with structured conditions, a summary phase, and metrics.
+
+---
+
+## Runtime checks
+
+The following checks run on each reconciliation. These are the current built-in checks — they cover the most common contract-to-runtime mismatches, not every possible validation.
 
 | Check | Severity | What it validates |
 |-------|----------|-------------------|
 | WorkloadType | error | Deployment vs StatefulSet vs Job matches contract |
-| StateModel | error | PVC/emptyDir presence matches contract |
-| UpgradeStrategy | warning | RollingUpdate vs Recreate matches contract |
-| GracefulShutdown | warning | terminationGracePeriodSeconds alignment |
+| StateModel | error | PVC/emptyDir presence matches contract state model |
+| UpgradeStrategy | warning | RollingUpdate vs Recreate vs OrderedReady matches contract |
+| GracefulShutdown | warning | terminationGracePeriodSeconds matches contract |
 | Image | warning | Container image matches contract |
-| HealthTiming | warning | Probe initialDelaySeconds alignment |
+| HealthTiming | warning | Probe initialDelaySeconds matches contract |
+
+Error-severity failures set the phase to `Invalid`. Warning-severity failures set it to `Degraded`. When all checks pass, the phase is `Healthy`.
+
+---
+
+## CRDs
+
+### Pacto
+
+A `Pacto` resource binds a contract source to an optional runtime target:
+
+- **Contract source**: OCI registry reference (`spec.contractRef.oci`) or inline YAML (`spec.contractRef.inline`). OCI references resolve to the highest semver tag automatically.
+- **Target**: a Kubernetes Service (`spec.target.serviceName`) and workload (`spec.target.workloadRef`). If the workload ref is omitted, it defaults to a Deployment with the same name as the service.
+- **Reference mode**: when no target is specified, the Pacto is reference-only — the contract is resolved and stored, but no runtime validation runs. Phase is `Reference`.
+
+### PactoRevision
+
+A `PactoRevision` is an immutable snapshot of a resolved contract version. Created automatically when a new version is resolved. Owned by the parent `Pacto` resource and garbage collected on deletion. Name pattern: `<pacto-name>-<version>-<hash>`.
+
+---
+
+## Quick Start
+
+1. Install the operator (see [Installation](#installation)).
+
+2. Create a `Pacto` resource that binds a contract to a workload:
+
+   ```yaml
+   apiVersion: pacto.trianalab.io/v1alpha1
+   kind: Pacto
+   metadata:
+     name: my-service
+   spec:
+     contractRef:
+       oci: ghcr.io/your-org/contracts/my-service
+     target:
+       serviceName: my-service
+   ```
+
+   The operator resolves the highest semver tag from the OCI registry, creates a `PactoRevision` for that version, observes the `my-service` Deployment and Service, runs all checks, and sets the status phase.
+
+3. Check status:
+
+   ```bash
+   kubectl get pactos
+   ```
+
+   The `PHASE` column shows: `Healthy` (all checks pass), `Degraded` (warnings), `Invalid` (errors or missing resources), or `Reference` (no target).
+
+4. Inspect conditions for details on individual checks:
+
+   ```bash
+   kubectl describe pacto my-service
+   ```
+
+---
 
 ## Installation
 
@@ -81,48 +155,17 @@ make install   # Install CRDs
 make deploy    # Deploy the controller
 ```
 
-## Quick Start
-
-1. Install the operator (see above).
-
-2. Create a Pacto contract:
-
-   ```yaml
-   apiVersion: pacto.trianalab.io/v1alpha1
-   kind: Pacto
-   metadata:
-     name: my-service
-   spec:
-     contractRef:
-       oci: oci://ghcr.io/your-org/contracts/my-service
-     target:
-       serviceName: my-service
-   ```
-
-3. Check status:
-
-   ```bash
-   kubectl get pactos
-   ```
-
-   The `PHASE` column shows: `Healthy`, `Degraded`, `Invalid`, or `Reference`.
-
-## CRDs
-
-| CRD | Description |
-|-----|-------------|
-| `Pacto` | Declares a contract and optional target workload for runtime validation |
-| `PactoRevision` | Immutable snapshot of a resolved contract version (auto-managed) |
-
-A `Pacto` resource binds a contract (from an OCI registry or inline) to a target workload. On each reconciliation the controller loads the contract, observes the workload's runtime state, runs all six validation checks, and updates the CR status with structured conditions and a summary phase.
-
-A `PactoRevision` is created automatically whenever a new contract version is resolved. Revisions are immutable and owned by their parent `Pacto` resource (garbage collected on deletion).
+---
 
 ## Dashboard
 
-The dashboard is enabled by default. The operator manages the dashboard lifecycle: Deployment, internal ClusterIP Service (`pacto-dashboard`), ServiceAccount, and RBAC. The dashboard image is version-locked to the Pacto library bundled into the controller — it is not user-configurable.
+The operator optionally manages a [Pacto Dashboard](https://github.com/TrianaLab/pacto-dashboard) instance. The dashboard provides a visual service graph showing dependencies, contract versions, and compliance status across all Pacto resources in the cluster.
 
-Network exposure is a chart-level concern, not an operator concern. The Helm chart creates a separate configurable Service for external access, with optional Ingress and Gateway API HTTPRoute support. See the [chart README](charts/pacto-operator/#dashboard) for all options.
+The operator handles the full dashboard lifecycle: Deployment, ClusterIP Service, ServiceAccount, and RBAC. The dashboard image is version-locked to the Pacto library bundled into the controller.
+
+Network exposure is a chart-level concern. The Helm chart creates a separate configurable Service for external access, with optional Ingress and Gateway API HTTPRoute support. See the [chart README](charts/pacto-operator/#dashboard) for details.
+
+---
 
 ## Metrics
 
@@ -145,9 +188,21 @@ metrics:
 
 Pre-built alerting rules are available in `config/prometheus/alerts.yaml`.
 
+---
+
+## What it does NOT do
+
+- **Enforce or block deployments.** The operator is read-only. It reports drift; it does not prevent it. Use admission webhooks or CI gates if you need enforcement.
+- **Author or publish contracts.** That is the [CLI](https://github.com/TrianaLab/pacto)'s job.
+- **Modify workloads.** It never patches, scales, restarts, or deletes your resources.
+- **Deep protocol validation.** It does not test HTTP endpoints, validate OpenAPI responses, or run integration tests. It checks structural properties (image, strategy, probes, storage) declared in the contract.
+- **Replace monitoring.** It answers "does the workload match the contract?", not "is the workload healthy?". Use it alongside — not instead of — observability tools.
+
+---
+
 ## Artifact Verification
 
-All published artifacts (controller image and Helm chart) are signed with [Cosign](https://docs.sigstore.dev/cosign/overview/) using keyless OIDC signing via GitHub Actions. No pre-shared keys are required — verification uses the OIDC issuer and repository identity.
+All published artifacts (controller image and Helm chart) are signed with [Cosign](https://docs.sigstore.dev/cosign/overview/) using keyless OIDC signing via GitHub Actions.
 
 Verify the controller image:
 
@@ -166,6 +221,8 @@ cosign verify \
   --certificate-identity-regexp 'github\.com/TrianaLab/pacto-operator' \
   ghcr.io/trianalab/charts/pacto-operator:<version>
 ```
+
+---
 
 ## Development
 
@@ -191,8 +248,6 @@ make lint         # Run golangci-lint
 
 ### Local development
 
-Four single-command targets cover all local development modes:
-
 **Local process** (operator runs on your machine, connects to current kube context):
 
 ```bash
@@ -208,11 +263,11 @@ make deploy-local-with-dashboard   # Build, install CRDs, deploy with dashboard
 make undeploy-local                # Remove from current kube context
 ```
 
-These targets work with any local Kubernetes distribution (Docker Desktop, minikube, Kind, etc.). If you use Kind, run `make kind-load` first so the image is available inside the cluster, or use the convenience target `make deploy-kind` which combines both steps.
-
-The dashboard image is always derived from the Pacto library version in `go.mod` — it is not user-configurable.
+These targets work with any local Kubernetes distribution (Docker Desktop, minikube, Kind, etc.). If you use Kind, run `make kind-load` first so the image is available inside the cluster, or use `make deploy-kind` which combines both steps.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
+
+---
 
 ## Artifacts
 
