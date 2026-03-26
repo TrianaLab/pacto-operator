@@ -199,7 +199,7 @@ jobs:
         run: |
           digest=$(docker buildx imagetools inspect \
             "ghcr.io/trianalab/pacto-operator/pacto-controller:${{ steps.meta.outputs.version }}" \
-            --format '{{.Manifest.Digest}}')
+            --format '{{.Digest}}')
           cosign sign --yes \
             "ghcr.io/trianalab/pacto-operator/pacto-controller:${{ steps.meta.outputs.version }}@${digest}"
 
