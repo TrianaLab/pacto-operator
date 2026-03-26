@@ -15,8 +15,10 @@ COPY go.sum go.sum
 # and so that source changes don't invalidate our downloaded layer
 RUN go mod download
 
-# Copy the Go source (relies on .dockerignore to filter)
-COPY . .
+# Copy the Go source
+COPY api/ api/
+COPY cmd/ cmd/
+COPY internal/ internal/
 
 # Build with version metadata injected via ldflags
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
