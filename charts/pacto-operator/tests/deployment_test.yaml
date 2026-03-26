@@ -100,3 +100,20 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-oci-secret=my-secret"
+
+  - it: should not include dashboard-cache=false by default
+    set:
+      dashboard.enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-cache=false"
+
+  - it: should include dashboard-cache=false when cache disabled
+    set:
+      dashboard.enabled: true
+      dashboard.cache.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-cache=false"

@@ -311,14 +311,12 @@ ifndef ignore-not-found
 endif
 
 .PHONY: deploy-samples
-deploy-samples: ## Deploy sample infrastructure and Pacto CRs.
-	"$(KUBECTL)" apply -f config/samples/scenarios/00-infrastructure.yaml
-	@sleep 2
-	"$(KUBECTL)" apply -f config/samples/scenarios/
+deploy-samples: kustomize ## Deploy sample infrastructure and Pacto CRs.
+	"$(KUSTOMIZE)" build config/samples/demo | "$(KUBECTL)" apply -f -
 
 .PHONY: undeploy-samples
-undeploy-samples: ## Remove sample Pacto CRs and infrastructure.
-	"$(KUBECTL)" delete -f config/samples/scenarios/ --ignore-not-found=$(ignore-not-found)
+undeploy-samples: kustomize ## Remove sample Pacto CRs and infrastructure.
+	"$(KUSTOMIZE)" build config/samples/demo | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.

@@ -222,6 +222,7 @@ cosign verify \
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for the controller pod |
 | controller.watchNamespace | string | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
+| dashboard.cache.enabled | bool | `true` | Mount an emptyDir volume for OCI bundle caching in the dashboard pod. |
 | dashboard.enabled | bool | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
 | dashboard.httpRoute.enabled | bool | `false` | Enable Gateway API HTTPRoute for the dashboard |
 | dashboard.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute |
