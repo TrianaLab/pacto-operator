@@ -71,7 +71,6 @@ func main() {
 	var enableDashboard bool
 	var watchNamespace string
 	var dashboardOCISecret string
-	var dashboardCache bool
 	var showVersion bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to. "+
@@ -99,8 +98,6 @@ func main() {
 	flag.StringVar(&dashboardOCISecret, "dashboard-oci-secret", "",
 		"Optional: name of a Secret in the operator namespace containing OCI registry credentials "+
 			"(keys: username, password, token).")
-	flag.BoolVar(&dashboardCache, "dashboard-cache", true,
-		"Mount an emptyDir volume for OCI bundle caching in the dashboard pod. Enabled by default.")
 	flag.BoolVar(&showVersion, "version", false, "Print version information and exit.")
 	opts := zap.Options{
 		Development: true,
@@ -256,7 +253,6 @@ func main() {
 		Namespace:      dashboardNamespace,
 		WatchNamespace: watchNamespace,
 		OCISecret:      dashboardOCISecret,
-		CacheEnabled:   dashboardCache,
 	}
 	if err := dashCfg.Validate(); err != nil {
 		setupLog.Error(err, "Invalid dashboard configuration")
