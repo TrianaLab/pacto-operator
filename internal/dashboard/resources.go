@@ -116,10 +116,6 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 		{Name: "PACTO_NO_UPDATE_CHECK", Value: "1"},
 	}
 
-	if !cfg.CacheEnabled {
-		env = append(env, corev1.EnvVar{Name: "PACTO_NO_CACHE", Value: "1"})
-	}
-
 	if cfg.WatchNamespace != "" {
 		env = append(env, corev1.EnvVar{
 			Name:  "PACTO_WATCH_NAMESPACE",
@@ -162,23 +158,19 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 		)
 	}
 
-	var volumeMounts []corev1.VolumeMount
-	var volumes []corev1.Volume
-	if cfg.CacheEnabled {
-		volumeMounts = []corev1.VolumeMount{
-			{
-				Name:      "cache",
-				MountPath: "/home/nonroot/.cache/pacto",
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "cache",
+			MountPath: "/home/pacto/.cache/pacto",
+		},
+	}
+	volumes := []corev1.Volume{
+		{
+			Name: "cache",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
-		}
-		volumes = []corev1.Volume{
-			{
-				Name: "cache",
-				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{},
-				},
-			},
-		}
+		},
 	}
 
 	return &appsv1.Deployment{
