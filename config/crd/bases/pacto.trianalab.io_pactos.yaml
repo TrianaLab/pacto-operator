@@ -15,8 +15,8 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.phase
-      name: Phase
+    - jsonPath: .status.contractStatus
+      name: Status
       type: string
     - jsonPath: .spec.target.serviceName
       name: Service
@@ -81,6 +81,12 @@ spec:
                       OCI is the OCI registry reference for the contract bundle (without tag).
                       The operator automatically resolves the latest semver tag from the registry.
                       Example: ghcr.io/org/service-pacto
+                    type: string
+                  pullSecretRef:
+                    description: |-
+                      PullSecretRef is the name of a Secret in the same namespace containing
+                      OCI registry credentials. Supported keys: "token" (bearer token) or
+                      "username"+"password" (basic auth).
                     type: string
                 type: object
               target:
@@ -230,6 +236,17 @@ spec:
                 - serviceName
                 - version
                 type: object
+              contractStatus:
+                description: |-
+                  ContractStatus is the high-level contract compliance state.
+                  This reflects contract validation/compliance and is NOT runtime health.
+                enum:
+                - Compliant
+                - Warning
+                - NonCompliant
+                - Reference
+                - Unknown
+                type: string
               contractVersion:
                 description: |-
                   ContractVersion is the version from the parsed contract.
@@ -417,15 +434,6 @@ spec:
                 - hasEmptyDir
                 - hasPVC
                 type: object
-              phase:
-                description: Phase is the high-level compliance state.
-                enum:
-                - Healthy
-                - Degraded
-                - Invalid
-                - Reference
-                - Unknown
-                type: string
               policy:
                 description: Policy describes the contract's policy section.
                 properties:

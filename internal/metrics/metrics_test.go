@@ -107,3 +107,23 @@ func TestRecordValidation_AtLeastOneCheckFailing(t *testing.T) {
 
 	RecordValidation("test-ns", "one-fail-svc", checks)
 }
+
+func TestRecordContractStatus_Compliant(t *testing.T) {
+	RecordContractStatus("default", "my-pacto", pactov1alpha1.ContractStatusCompliant)
+}
+
+func TestRecordContractStatus_Warning(t *testing.T) {
+	RecordContractStatus("default", "my-pacto", pactov1alpha1.ContractStatusWarning)
+}
+
+func TestRecordContractStatus_NonCompliant(t *testing.T) {
+	RecordContractStatus("default", "my-pacto", pactov1alpha1.ContractStatusNonCompliant)
+}
+
+func TestRecordContractStatus_Reference(t *testing.T) {
+	RecordContractStatus("default", "my-pacto", pactov1alpha1.ContractStatusReference)
+}
+
+func TestRecordContractStatus_Unknown(t *testing.T) {
+	RecordContractStatus("default", "my-pacto", pactov1alpha1.ContractStatusUnknown)
+}

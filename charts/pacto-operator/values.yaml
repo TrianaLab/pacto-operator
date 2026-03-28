@@ -89,9 +89,8 @@ metrics:
     interval: ""
     # -- Scrape timeout
     scrapeTimeout: ""
-  prometheusRule:
-    # -- Create PrometheusRule for alerting
-    enabled: false
+  # PrometheusRule alerting templates are available in config/prometheus/alerts.yaml.
+  # Apply them manually with: kubectl apply -f config/prometheus/alerts.yaml
 
 dashboard:
   # -- Enable the operator-managed dashboard deployment.

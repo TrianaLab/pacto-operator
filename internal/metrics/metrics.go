@@ -26,11 +26,21 @@ import (
 
 const meterName = "pacto.trianalab.io/operator"
 
+// allStatuses is the set of ContractStatus values emitted by RecordContractStatus.
+var allStatuses = []string{
+	pactov1alpha1.ContractStatusCompliant,
+	pactov1alpha1.ContractStatusWarning,
+	pactov1alpha1.ContractStatusNonCompliant,
+	pactov1alpha1.ContractStatusReference,
+	pactov1alpha1.ContractStatusUnknown,
+}
+
 var (
 	complianceStatus otelmetric.Int64Gauge
 	validationErrors otelmetric.Int64Gauge
 	validationWarns  otelmetric.Int64Gauge
 	validationResult otelmetric.Int64Gauge
+	contractStatus   otelmetric.Int64Gauge
 )
 
 func init() {
@@ -68,6 +78,27 @@ func registerGauges(exporter sdkmetric.Reader) {
 	validationResult, _ = meter.Int64Gauge("pacto_contract_validation_result",
 		otelmetric.WithDescription("Result of each contract validation check (1=pass, 0=fail)"),
 	)
+	contractStatus, _ = meter.Int64Gauge("pacto_contract_status",
+		otelmetric.WithDescription("Contract status by phase (1=active, 0=inactive). Label 'status' is one of: Compliant, Warning, NonCompliant, Reference, Unknown"),
+	)
+}
+
+// RecordContractStatus emits the info-style pacto_contract_status gauge.
+// The current status gets value 1; all other statuses get 0.
+// Uses the Pacto CR name as identifier so it works even when no service is configured.
+func RecordContractStatus(namespace, name, status string) {
+	ctx := context.Background()
+	for _, s := range allStatuses {
+		val := int64(0)
+		if s == status {
+			val = 1
+		}
+		contractStatus.Record(ctx, val, otelmetric.WithAttributes(
+			attribute.String("name", name),
+			attribute.String("namespace", namespace),
+			attribute.String("status", s),
+		))
+	}
 }
 
 // RecordValidation updates all metrics for a Pacto CR based on validation checks.

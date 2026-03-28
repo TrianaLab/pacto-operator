@@ -24,6 +24,12 @@ type ContractRef struct {
 	// Inline allows specifying the contract YAML directly (for testing/dev).
 	// +optional
 	Inline string `json:"inline,omitempty"`
+
+	// PullSecretRef is the name of a Secret in the same namespace containing
+	// OCI registry credentials. Supported keys: "token" (bearer token) or
+	// "username"+"password" (basic auth).
+	// +optional
+	PullSecretRef string `json:"pullSecretRef,omitempty"`
 }
 
 // WorkloadRef identifies a workload resource by name and kind.
@@ -372,10 +378,11 @@ type ValidationResult struct {
 // All contract data is exposed as structured fields so external consumers
 // can read the CR status directly without parsing contracts themselves.
 type PactoStatus struct {
-	// Phase is the high-level compliance state.
-	// +kubebuilder:validation:Enum=Healthy;Degraded;Invalid;Reference;Unknown
+	// ContractStatus is the high-level contract compliance state.
+	// This reflects contract validation/compliance and is NOT runtime health.
+	// +kubebuilder:validation:Enum=Compliant;Warning;NonCompliant;Reference;Unknown
 	// +optional
-	Phase string `json:"phase,omitempty"`
+	ContractStatus string `json:"contractStatus,omitempty"`
 
 	// Summary provides precomputed check counts.
 	// +optional
@@ -461,7 +468,7 @@ type PactoStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.contractStatus`
 // +kubebuilder:printcolumn:name="Service",type=string,JSONPath=`.spec.target.serviceName`
 // +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.status.contractVersion`
 // +kubebuilder:printcolumn:name="Passed",type=integer,JSONPath=`.status.summary.passed`

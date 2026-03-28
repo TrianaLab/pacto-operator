@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
 	"github.com/trianalab/pacto-operator/internal/loader"
 	"github.com/trianalab/pacto-operator/internal/observer"
@@ -39,14 +41,17 @@ type mockLoader struct {
 	listTagsFn func(ctx context.Context, ociRef string) ([]string, error)
 }
 
-func (m *mockLoader) Load(ctx context.Context, ociRef, inline string) (*loader.LoadResult, error) {
+// Verify interface compliance.
+var _ ContractLoader = (*mockLoader)(nil)
+
+func (m *mockLoader) Load(ctx context.Context, ociRef, inline string, _ *authn.AuthConfig) (*loader.LoadResult, error) {
 	if m.loadFn != nil {
 		return m.loadFn(ctx, ociRef, inline)
 	}
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (m *mockLoader) ListTags(ctx context.Context, ociRef string) ([]string, error) {
+func (m *mockLoader) ListTags(ctx context.Context, ociRef string, _ *authn.AuthConfig) ([]string, error) {
 	if m.listTagsFn != nil {
 		return m.listTagsFn(ctx, ociRef)
 	}
@@ -1000,6 +1005,54 @@ func TestProbeEndpoints_MetricsOnly(t *testing.T) {
 	}
 }
 
+func TestProbeEndpoints_RuntimeWithoutHealthOrMetrics(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			// No Health, no Metrics
+		},
+	}
+
+	checks := r.probeEndpoints(context.Background(), pacto, c, "my-svc")
+	if len(checks) != 0 {
+		t.Fatalf("expected 0 checks, got %d", len(checks))
+	}
+	if pacto.Status.Endpoints != nil {
+		t.Fatal("expected nil endpoints when no health/metrics declared")
+	}
+}
+
+func TestProbeEndpoints_HealthEmptyInterface(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Runtime: &contract.Runtime{
+			Health: &contract.Health{
+				Interface: "", // empty interface
+				Path:      "/health",
+			},
+		},
+	}
+
+	checks := r.probeEndpoints(context.Background(), pacto, c, "my-svc")
+	if len(checks) != 0 {
+		t.Fatalf("expected 0 checks for empty interface, got %d", len(checks))
+	}
+	if pacto.Status.Endpoints != nil {
+		t.Fatal("expected nil endpoints when health interface is empty")
+	}
+}
+
 // ---------- mapObjectToPactos (enqueueForTarget logic) ----------
 
 func newFakeObj(name string) client.Object {
@@ -1463,7 +1516,7 @@ func TestSyncAllRevisions_ListTagsError(t *testing.T) {
 		},
 	}
 
-	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc")
+	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1504,7 +1557,7 @@ func TestSyncAllRevisions_TagAlreadyHasRevision(t *testing.T) {
 		},
 	}
 
-	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc")
+	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1529,7 +1582,7 @@ func TestSyncAllRevisions_LoadError(t *testing.T) {
 		},
 	}
 
-	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc")
+	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
 	if err != nil {
 		t.Fatalf("unexpected error (should continue on load error): %v", err)
 	}
@@ -1560,7 +1613,7 @@ func TestSyncAllRevisions_Success(t *testing.T) {
 		},
 	}
 
-	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc")
+	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1603,7 +1656,7 @@ func TestSyncAllRevisions_TagWithColon(t *testing.T) {
 	}
 
 	// Base ref with oci:// prefix and no existing tag
-	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc")
+	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1641,7 +1694,7 @@ func TestSyncAllRevisions_BaseRefWithExistingTag(t *testing.T) {
 	}
 
 	// Base ref already has a tag — should strip it before appending the new tag
-	err := r.syncAllRevisions(context.Background(), pacto, "ghcr.io/org/svc:latest")
+	err := r.syncAllRevisions(context.Background(), pacto, "ghcr.io/org/svc:latest", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1683,7 +1736,7 @@ func TestSyncAllRevisions_RevisionListError(t *testing.T) {
 	}
 
 	// Should not return error — it continues on list error
-	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc")
+	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
 	if err != nil {
 		t.Fatalf("expected nil error (should continue), got: %v", err)
 	}
@@ -1728,7 +1781,7 @@ func TestSyncAllRevisions_EnsureRevisionError(t *testing.T) {
 	r.Scheme = s
 
 	// Should not return error — it continues on ensureRevision error
-	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc")
+	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
 	if err != nil {
 		t.Fatalf("expected nil error (should continue), got: %v", err)
 	}
@@ -1759,8 +1812,8 @@ func TestFailReconciliation_NoServiceName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pacto.Status.Phase != pactov1alpha1.PhaseInvalid {
-		t.Fatalf("expected Invalid phase, got %s", pacto.Status.Phase)
+	if pacto.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Fatalf("expected NonCompliant status, got %s", pacto.Status.ContractStatus)
 	}
 }
 
@@ -1783,8 +1836,8 @@ func TestFailReconciliation_NilContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pacto.Status.Phase != pactov1alpha1.PhaseInvalid {
-		t.Fatalf("expected Invalid phase, got %s", pacto.Status.Phase)
+	if pacto.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Fatalf("expected NonCompliant status, got %s", pacto.Status.ContractStatus)
 	}
 	if pacto.Status.Summary == nil || pacto.Status.Summary.Failed != 1 {
 		t.Fatalf("unexpected summary: %+v", pacto.Status.Summary)
@@ -1830,6 +1883,141 @@ func TestFailReconciliation_WithServiceName(t *testing.T) {
 	}
 	if cond.Status != metav1.ConditionFalse {
 		t.Fatalf("expected ConditionFalse, got %v", cond.Status)
+	}
+}
+
+func TestReconcile_ObserverError_SetsUnknownWithSummary(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: "test"},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "my-svc"},
+		},
+	}
+
+	s := newScheme()
+	r := &PactoReconciler{
+		Client: fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).
+			WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					// Fail Service/Workload gets to trigger observer error
+					if _, ok := obj.(*corev1.Service); ok {
+						return fmt.Errorf("simulated observer error")
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			}).Build(),
+		Scheme:   s,
+		Recorder: record.NewFakeRecorder(20),
+		Loader: &mockLoader{
+			loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+				return &loader.LoadResult{
+					Contract: &contract.Contract{
+						Service: contract.ServiceIdentity{Name: "my-svc", Version: "1.0.0"},
+					},
+					RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 1.0.0\n"),
+				}, nil
+			},
+		},
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Fatal("expected requeue")
+	}
+
+	// Verify status is consistent
+	updated := &pactov1alpha1.Pacto{}
+	if getErr := r.Get(context.Background(), client.ObjectKey{Name: "test", Namespace: "default"}, updated); getErr != nil {
+		t.Fatalf("failed to get updated pacto: %v", getErr)
+	}
+	if updated.Status.ContractStatus != pactov1alpha1.ContractStatusUnknown {
+		t.Fatalf("expected Unknown, got %s", updated.Status.ContractStatus)
+	}
+	if updated.Status.Summary == nil {
+		t.Fatal("expected Summary to be set on observer error path")
+	}
+	if updated.Status.Summary.Total != 1 || updated.Status.Summary.Passed != 1 {
+		t.Fatalf("expected Summary{1,1,0}, got %+v", updated.Status.Summary)
+	}
+}
+
+// ---------- computeFinalContractStatus ----------
+
+func TestComputeFinalContractStatus_AllPassing(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue, "ok", "ok")
+	r.setCondition(pacto, pactov1alpha1.ConditionServiceExists, metav1.ConditionTrue, "ok", "ok")
+	r.setCondition(pacto, pactov1alpha1.ConditionPortsValid, metav1.ConditionTrue, "ok", "ok")
+
+	got := r.computeFinalContractStatus(pacto)
+	if got != pactov1alpha1.ContractStatusCompliant {
+		t.Fatalf("expected Compliant, got %s", got)
+	}
+}
+
+func TestComputeFinalContractStatus_ResourceMissing(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue, "ok", "ok")
+	r.setCondition(pacto, pactov1alpha1.ConditionServiceExists, metav1.ConditionFalse, "missing", "missing")
+	r.setCondition(pacto, pactov1alpha1.ConditionPortsValid, metav1.ConditionFalse, "missing", "missing")
+
+	got := r.computeFinalContractStatus(pacto)
+	if got != pactov1alpha1.ContractStatusNonCompliant {
+		t.Fatalf("expected NonCompliant, got %s", got)
+	}
+}
+
+func TestComputeFinalContractStatus_NonResourceFailure(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue, "ok", "ok")
+	r.setCondition(pacto, pactov1alpha1.ConditionServiceExists, metav1.ConditionTrue, "ok", "ok")
+	r.setCondition(pacto, pactov1alpha1.ConditionPortsValid, metav1.ConditionFalse, "mismatch", "mismatch")
+
+	got := r.computeFinalContractStatus(pacto)
+	if got != pactov1alpha1.ContractStatusWarning {
+		t.Fatalf("expected Warning, got %s", got)
+	}
+}
+
+func TestComputeFinalContractStatus_ResourceAndNonResourceFailure(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+	r.setCondition(pacto, pactov1alpha1.ConditionWorkloadExists, metav1.ConditionFalse, "missing", "missing")
+	r.setCondition(pacto, pactov1alpha1.ConditionPortsValid, metav1.ConditionFalse, "mismatch", "mismatch")
+
+	got := r.computeFinalContractStatus(pacto)
+	if got != pactov1alpha1.ContractStatusNonCompliant {
+		t.Fatalf("expected NonCompliant (resource failure takes precedence), got %s", got)
+	}
+}
+
+func TestComputeFinalContractStatus_EmptyConditions(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	got := r.computeFinalContractStatus(pacto)
+	if got != pactov1alpha1.ContractStatusCompliant {
+		t.Fatalf("expected Compliant for empty conditions, got %s", got)
 	}
 }
 
@@ -2075,9 +2263,9 @@ func TestReconcile_SyncAllRevisionsError(t *testing.T) {
 	}
 }
 
-// ---------- computeFinalPhase ----------
+// ---------- computeFinalContractStatus ----------
 
-func TestComputeFinalPhase_Healthy(t *testing.T) {
+func TestComputeFinalContractStatus_Compliant(t *testing.T) {
 	r := newReconciler()
 	pacto := &pactov1alpha1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
@@ -2088,13 +2276,13 @@ func TestComputeFinalPhase_Healthy(t *testing.T) {
 			},
 		},
 	}
-	phase := r.computeFinalPhase(pacto)
-	if phase != pactov1alpha1.PhaseHealthy {
-		t.Fatalf("expected Healthy, got %s", phase)
+	cs := r.computeFinalContractStatus(pacto)
+	if cs != pactov1alpha1.ContractStatusCompliant {
+		t.Fatalf("expected Compliant, got %s", cs)
 	}
 }
 
-func TestComputeFinalPhase_Invalid(t *testing.T) {
+func TestComputeFinalContractStatus_NonCompliant(t *testing.T) {
 	r := newReconciler()
 	pacto := &pactov1alpha1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
@@ -2104,13 +2292,13 @@ func TestComputeFinalPhase_Invalid(t *testing.T) {
 			},
 		},
 	}
-	phase := r.computeFinalPhase(pacto)
-	if phase != pactov1alpha1.PhaseInvalid {
-		t.Fatalf("expected Invalid, got %s", phase)
+	cs := r.computeFinalContractStatus(pacto)
+	if cs != pactov1alpha1.ContractStatusNonCompliant {
+		t.Fatalf("expected NonCompliant, got %s", cs)
 	}
 }
 
-func TestComputeFinalPhase_Degraded(t *testing.T) {
+func TestComputeFinalContractStatus_Warning(t *testing.T) {
 	r := newReconciler()
 	pacto := &pactov1alpha1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
@@ -2121,9 +2309,9 @@ func TestComputeFinalPhase_Degraded(t *testing.T) {
 			},
 		},
 	}
-	phase := r.computeFinalPhase(pacto)
-	if phase != pactov1alpha1.PhaseDegraded {
-		t.Fatalf("expected Degraded, got %s", phase)
+	cs := r.computeFinalContractStatus(pacto)
+	if cs != pactov1alpha1.ContractStatusWarning {
+		t.Fatalf("expected Warning, got %s", cs)
 	}
 }
 
@@ -2135,7 +2323,7 @@ func TestResetDerivedStatus(t *testing.T) {
 	pacto := &pactov1alpha1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Status: pactov1alpha1.PactoStatus{
-			Phase:            pactov1alpha1.PhaseHealthy,
+			ContractStatus:   pactov1alpha1.ContractStatusCompliant,
 			Summary:          &pactov1alpha1.CheckSummary{Total: 5, Passed: 3, Failed: 2},
 			ContractVersion:  "1.0.0",
 			Contract:         &pactov1alpha1.ContractInfo{ServiceName: "svc"},
@@ -2152,8 +2340,8 @@ func TestResetDerivedStatus(t *testing.T) {
 
 	r.resetDerivedStatus(pacto)
 
-	if pacto.Status.Phase != "" {
-		t.Fatalf("expected empty phase, got %s", pacto.Status.Phase)
+	if pacto.Status.ContractStatus != "" {
+		t.Fatalf("expected empty contractStatus, got %s", pacto.Status.ContractStatus)
 	}
 	if pacto.Status.Summary != nil {
 		t.Fatal("expected nil summary")
@@ -2196,7 +2384,7 @@ func TestApplyValidationResult_Full(t *testing.T) {
 	}
 
 	result := validator.Result{
-		Phase: pactov1alpha1.PhaseHealthy,
+		ContractStatus: pactov1alpha1.ContractStatusCompliant,
 		Checks: []validator.Check{
 			{Name: pactov1alpha1.ConditionServiceExists, Passed: true, Reason: "Found", Message: "Service exists"},
 			{Name: pactov1alpha1.ConditionWorkloadExists, Passed: true, Reason: "Found", Message: "Workload exists"},
@@ -2423,10 +2611,10 @@ func TestFailReconciliation_StatusUpdateError(t *testing.T) {
 		Errors: []pactov1alpha1.ValidationIssue{{Message: "test error"}},
 	}
 
-	// Should not return an error even when status update fails
+	// Should return the status update error so controller-runtime retries immediately
 	_, err := r.failReconciliation(context.Background(), pacto, "test error", valResult, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error when status update fails")
 	}
 }
 
@@ -2592,13 +2780,13 @@ func TestReconcile_ValidationErrors(t *testing.T) {
 		t.Error("expected requeue after validation errors")
 	}
 
-	// Verify the pacto status was updated with Invalid phase
+	// Verify the pacto status was updated with NonCompliant status
 	var updated pactov1alpha1.Pacto
 	if err := r.Get(context.Background(), client.ObjectKey{Name: "my-pacto", Namespace: "default"}, &updated); err != nil {
 		t.Fatalf("failed to get updated pacto: %v", err)
 	}
-	if updated.Status.Phase != pactov1alpha1.PhaseInvalid {
-		t.Errorf("expected phase Invalid, got %s", updated.Status.Phase)
+	if updated.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Errorf("expected NonCompliant, got %s", updated.Status.ContractStatus)
 	}
 }
 
@@ -2739,6 +2927,227 @@ func TestEnsureRevision_CreateStatusUpdateError(t *testing.T) {
 	}
 	if name == "" {
 		t.Fatal("expected non-empty revision name")
+	}
+}
+
+// ---------- resolveOCIAuth ----------
+
+func TestResolveOCIAuth_Token(t *testing.T) {
+	s := newScheme()
+	_ = corev1.AddToScheme(s)
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-secret", Namespace: "default"},
+		Data:       map[string][]byte{"token": []byte("ghp_mytoken123")},
+	}
+	c := fake.NewClientBuilder().WithScheme(s).WithObjects(secret).Build()
+	r := &PactoReconciler{Client: c, Scheme: s}
+
+	auth, err := r.resolveOCIAuth(context.Background(), "default", "my-secret")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if auth.RegistryToken != "ghp_mytoken123" {
+		t.Fatalf("expected token ghp_mytoken123, got %s", auth.RegistryToken)
+	}
+}
+
+func TestResolveOCIAuth_UsernamePassword(t *testing.T) {
+	s := newScheme()
+	_ = corev1.AddToScheme(s)
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-secret", Namespace: "default"},
+		Data:       map[string][]byte{"username": []byte("user"), "password": []byte("pass")},
+	}
+	c := fake.NewClientBuilder().WithScheme(s).WithObjects(secret).Build()
+	r := &PactoReconciler{Client: c, Scheme: s}
+
+	auth, err := r.resolveOCIAuth(context.Background(), "default", "my-secret")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if auth.Username != "user" || auth.Password != "pass" {
+		t.Fatalf("expected user/pass, got %s/%s", auth.Username, auth.Password)
+	}
+}
+
+func TestResolveOCIAuth_MissingSecret(t *testing.T) {
+	s := newScheme()
+	_ = corev1.AddToScheme(s)
+	c := fake.NewClientBuilder().WithScheme(s).Build()
+	r := &PactoReconciler{Client: c, Scheme: s}
+
+	_, err := r.resolveOCIAuth(context.Background(), "default", "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for missing secret")
+	}
+}
+
+func TestResolveOCIAuth_InvalidKeys(t *testing.T) {
+	s := newScheme()
+	_ = corev1.AddToScheme(s)
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "bad-secret", Namespace: "default"},
+		Data:       map[string][]byte{"something": []byte("else")},
+	}
+	c := fake.NewClientBuilder().WithScheme(s).WithObjects(secret).Build()
+	r := &PactoReconciler{Client: c, Scheme: s}
+
+	_, err := r.resolveOCIAuth(context.Background(), "default", "bad-secret")
+	if err == nil {
+		t.Fatal("expected error for invalid keys")
+	}
+	if !strings.Contains(err.Error(), "must contain") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+// ---------- mapSecretToPactos ----------
+
+func TestMapSecretToPactos(t *testing.T) {
+	s := newScheme()
+	_ = corev1.AddToScheme(s)
+
+	p1 := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc", PullSecretRef: "oci-creds"},
+		},
+	}
+	p2 := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "p2", Namespace: "ns"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc2"},
+		},
+	}
+	p3 := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "p3", Namespace: "ns"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc3", PullSecretRef: "oci-creds"},
+		},
+	}
+
+	c := fake.NewClientBuilder().WithScheme(s).WithObjects(p1, p2, p3).Build()
+	mapFn := mapSecretToPactos(c)
+
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "oci-creds", Namespace: "ns"}}
+	reqs := mapFn(context.Background(), secret)
+	if len(reqs) != 2 {
+		t.Fatalf("expected 2 requests (p1, p3), got %d", len(reqs))
+	}
+
+	// Unrelated secret should return nothing
+	other := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "other-secret", Namespace: "ns"}}
+	reqs = mapFn(context.Background(), other)
+	if len(reqs) != 0 {
+		t.Fatalf("expected 0 requests, got %d", len(reqs))
+	}
+}
+
+func TestMapSecretToPactos_ListError(t *testing.T) {
+	s := newScheme()
+	_ = corev1.AddToScheme(s)
+	errClient := fake.NewClientBuilder().WithScheme(s).WithInterceptorFuncs(interceptor.Funcs{
+		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+			return fmt.Errorf("injected list error")
+		},
+	}).Build()
+
+	mapFn := mapSecretToPactos(errClient)
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"}}
+	reqs := mapFn(context.Background(), secret)
+	if len(reqs) != 0 {
+		t.Fatalf("expected 0 requests on error, got %d", len(reqs))
+	}
+}
+
+// ---------- Reconcile with pullSecretRef ----------
+
+func TestReconcile_PullSecretRef_MissingSecret(t *testing.T) {
+	s := newScheme()
+	_ = corev1.AddToScheme(s)
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{
+				OCI:           "ghcr.io/org/svc",
+				PullSecretRef: "nonexistent",
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).WithStatusSubresource(pacto).Build()
+	r := &PactoReconciler{
+		Client:   c,
+		Scheme:   s,
+		Recorder: record.NewFakeRecorder(10),
+		Loader:   &mockLoader{},
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(pacto),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Fatal("expected requeue")
+	}
+
+	// Verify status was set to NonCompliant
+	got := &pactov1alpha1.Pacto{}
+	_ = c.Get(context.Background(), client.ObjectKeyFromObject(pacto), got)
+	if got.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Fatalf("expected NonCompliant, got %s", got.Status.ContractStatus)
+	}
+}
+
+func TestReconcile_PullSecretRef_ValidSecret(t *testing.T) {
+	s := newScheme()
+	_ = corev1.AddToScheme(s)
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "default", UID: "uid-1"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{
+				Inline:        "service:\n  name: svc\n  version: 1.0.0\n",
+				PullSecretRef: "oci-creds",
+			},
+		},
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "oci-creds", Namespace: "default"},
+		Data:       map[string][]byte{"token": []byte("ghp_tok")},
+	}
+	c := fake.NewClientBuilder().WithScheme(s).WithObjects(pacto, secret).WithStatusSubresource(pacto).Build()
+	r := &PactoReconciler{
+		Client:   c,
+		Scheme:   s,
+		Recorder: record.NewFakeRecorder(10),
+		Loader: &mockLoader{
+			loadFn: func(_ context.Context, _, _ string) (*loader.LoadResult, error) {
+				return &loader.LoadResult{
+					Contract: &contract.Contract{
+						Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+					},
+					RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: svc\n  version: 1.0.0\n"),
+				}, nil
+			},
+		},
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(pacto),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Fatal("expected requeue")
+	}
+
+	got := &pactov1alpha1.Pacto{}
+	_ = c.Get(context.Background(), client.ObjectKeyFromObject(pacto), got)
+	// With an inline contract and a valid secret, should succeed as Reference (no target)
+	if got.Status.ContractStatus != pactov1alpha1.ContractStatusReference {
+		t.Fatalf("expected Reference, got %s", got.Status.ContractStatus)
 	}
 }
 

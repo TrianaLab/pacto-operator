@@ -10,7 +10,7 @@ import (
 
 func intPtr(v int) *int { return &v }
 
-func TestValidate_HealthyWithService(t *testing.T) {
+func TestValidate_CompliantWithService(t *testing.T) {
 	c := &contract.Contract{
 		Interfaces: []contract.Interface{
 			{Name: "http-api", Type: "http", Port: intPtr(8080)},
@@ -25,8 +25,8 @@ func TestValidate_HealthyWithService(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.Phase != pactov1alpha1.PhaseHealthy {
-		t.Errorf("expected phase Healthy, got %s", result.Phase)
+	if result.ContractStatus != pactov1alpha1.ContractStatusCompliant {
+		t.Errorf("expected Compliant, got %s", result.ContractStatus)
 	}
 	if len(result.Checks) != 3 {
 		t.Fatalf("expected 3 checks, got %d", len(result.Checks))
@@ -52,8 +52,8 @@ func TestValidate_ServiceNotFound(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.Phase != pactov1alpha1.PhaseInvalid {
-		t.Errorf("expected phase Invalid, got %s", result.Phase)
+	if result.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Errorf("expected NonCompliant, got %s", result.ContractStatus)
 	}
 	// Should have ServiceExists=false, WorkloadExists=true, no ports check
 	if len(result.Checks) != 2 {
@@ -75,8 +75,8 @@ func TestValidate_WorkloadNotFound(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.Phase != pactov1alpha1.PhaseInvalid {
-		t.Errorf("expected phase Invalid, got %s", result.Phase)
+	if result.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Errorf("expected NonCompliant, got %s", result.ContractStatus)
 	}
 }
 
@@ -96,8 +96,8 @@ func TestValidate_PortsMismatch(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.Phase != pactov1alpha1.PhaseDegraded {
-		t.Errorf("expected phase Degraded, got %s", result.Phase)
+	if result.ContractStatus != pactov1alpha1.ContractStatusWarning {
+		t.Errorf("expected Warning, got %s", result.ContractStatus)
 	}
 	if len(result.Ports.Missing) != 1 || result.Ports.Missing[0] != 9090 {
 		t.Errorf("expected missing port 9090, got %v", result.Ports.Missing)
@@ -123,8 +123,8 @@ func TestValidate_NoServiceTarget(t *testing.T) {
 	if result.Checks[0].Name != pactov1alpha1.ConditionWorkloadExists {
 		t.Errorf("expected WorkloadExists check, got %s", result.Checks[0].Name)
 	}
-	if result.Phase != pactov1alpha1.PhaseHealthy {
-		t.Errorf("expected phase Healthy, got %s", result.Phase)
+	if result.ContractStatus != pactov1alpha1.ContractStatusCompliant {
+		t.Errorf("expected Compliant, got %s", result.ContractStatus)
 	}
 }
 
@@ -159,8 +159,8 @@ func TestValidate_BothResourcesMissing(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.Phase != pactov1alpha1.PhaseInvalid {
-		t.Errorf("expected phase Invalid, got %s", result.Phase)
+	if result.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Errorf("expected NonCompliant, got %s", result.ContractStatus)
 	}
 	// Both ServiceExists and WorkloadExists should fail
 	failCount := 0
@@ -174,33 +174,33 @@ func TestValidate_BothResourcesMissing(t *testing.T) {
 	}
 }
 
-func TestComputePhase_ResourceFailureTakesPrecedence(t *testing.T) {
+func TestComputeContractStatus_ResourceFailureTakesPrecedence(t *testing.T) {
 	checks := []Check{
 		{Name: pactov1alpha1.ConditionServiceExists, Passed: false},
 		{Name: pactov1alpha1.ConditionPortsValid, Passed: false},
 	}
-	phase := computePhase(checks)
-	if phase != pactov1alpha1.PhaseInvalid {
-		t.Errorf("expected Invalid (resource failure takes precedence), got %s", phase)
+	cs := computeContractStatus(checks)
+	if cs != pactov1alpha1.ContractStatusNonCompliant {
+		t.Errorf("expected NonCompliant (resource failure takes precedence), got %s", cs)
 	}
 }
 
-func TestComputePhase_AllPassed(t *testing.T) {
+func TestComputeContractStatus_AllPassed(t *testing.T) {
 	checks := []Check{
 		{Name: pactov1alpha1.ConditionServiceExists, Passed: true},
 		{Name: pactov1alpha1.ConditionWorkloadExists, Passed: true},
 		{Name: pactov1alpha1.ConditionPortsValid, Passed: true},
 	}
-	phase := computePhase(checks)
-	if phase != pactov1alpha1.PhaseHealthy {
-		t.Errorf("expected Healthy, got %s", phase)
+	cs := computeContractStatus(checks)
+	if cs != pactov1alpha1.ContractStatusCompliant {
+		t.Errorf("expected Compliant, got %s", cs)
 	}
 }
 
-func TestComputePhase_Empty(t *testing.T) {
-	phase := computePhase(nil)
-	if phase != pactov1alpha1.PhaseHealthy {
-		t.Errorf("expected Healthy for empty checks, got %s", phase)
+func TestComputeContractStatus_Empty(t *testing.T) {
+	cs := computeContractStatus(nil)
+	if cs != pactov1alpha1.ContractStatusCompliant {
+		t.Errorf("expected Compliant for empty checks, got %s", cs)
 	}
 }
 
@@ -368,8 +368,8 @@ func TestValidate_AllRuntimeChecksWithHealth(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.Phase != pactov1alpha1.PhaseHealthy {
-		t.Errorf("expected Healthy, got %s", result.Phase)
+	if result.ContractStatus != pactov1alpha1.ContractStatusCompliant {
+		t.Errorf("expected Compliant, got %s", result.ContractStatus)
 	}
 	// 3 base + 6 runtime = 9
 	if len(result.Checks) != 9 {
@@ -446,27 +446,27 @@ func TestImageMatches_DigestAndTagStripping(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// computePhase — covers Degraded from non-resource check failure
+// computeContractStatus — covers Degraded from non-resource check failure
 // ---------------------------------------------------------------------------
 
-func TestComputePhase_DegradedNonResource(t *testing.T) {
+func TestComputeContractStatus_DegradedNonResource(t *testing.T) {
 	checks := []Check{
 		{Name: pactov1alpha1.ConditionWorkloadExists, Passed: true},
 		{Name: pactov1alpha1.ConditionWorkloadTypeMatch, Passed: false},
 	}
-	phase := computePhase(checks)
-	if phase != pactov1alpha1.PhaseDegraded {
-		t.Errorf("expected Degraded, got %s", phase)
+	cs := computeContractStatus(checks)
+	if cs != pactov1alpha1.ContractStatusWarning {
+		t.Errorf("expected Warning, got %s", cs)
 	}
 }
 
-func TestComputePhase_InvalidOverridesDegraded(t *testing.T) {
+func TestComputeContractStatus_InvalidOverridesDegraded(t *testing.T) {
 	checks := []Check{
 		{Name: pactov1alpha1.ConditionWorkloadExists, Passed: false},
 		{Name: pactov1alpha1.ConditionWorkloadTypeMatch, Passed: false},
 	}
-	phase := computePhase(checks)
-	if phase != pactov1alpha1.PhaseInvalid {
-		t.Errorf("expected Invalid (resource failure overrides), got %s", phase)
+	cs := computeContractStatus(checks)
+	if cs != pactov1alpha1.ContractStatusNonCompliant {
+		t.Errorf("expected NonCompliant (resource failure overrides), got %s", cs)
 	}
 }

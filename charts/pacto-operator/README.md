@@ -33,7 +33,7 @@ What the chart installs:
 - `ServiceAccount`, `ClusterRole`, and `ClusterRoleBinding` for RBAC
 - Metrics `Service` (HTTPS by default on port 8443)
 - CRDs: `Pacto` and `PactoRevision` (from the `crds/` directory)
-- Optional: Prometheus `ServiceMonitor` and `PrometheusRule`
+- Optional: Prometheus `ServiceMonitor`
 
 The operator is read-only — it never modifies your workloads. It only reads cluster state and reports compliance.
 
@@ -94,19 +94,51 @@ The chart creates a separate exposure Service (`<release>-pacto-operator-dashboa
 
 ### Private OCI Registries
 
-If your contracts are stored in a private OCI registry, create a Secret with the registry credentials and reference it via `dashboard.ociSecret`. The Secret must contain the following keys:
+There are two independent credential paths for private registries:
 
-| Key | Description |
-|-----|-------------|
-| `username` | Registry username |
-| `password` | Registry password |
-| `token` | Registry token (used instead of username/password when supported) |
+| Credential | Used by | Configured via |
+|------------|---------|----------------|
+| `spec.contractRef.pullSecretRef` | **Operator** (pulling contracts during reconciliation) | Per-Pacto CR field |
+| `dashboard.ociSecret` | **Dashboard** pod (browsing contracts in the UI) | Helm value |
+
+#### Operator credentials (per Pacto CR)
+
+Create a Secret in the **same namespace** as the Pacto CR with one of:
+
+- `token` — bearer/registry token (e.g. a GitHub PAT), **or**
+- `username` + `password` — basic auth
+
+```bash
+kubectl create secret generic ghcr-creds \
+  --from-literal=username=x-access-token \
+  --from-literal=password="$(gh auth token)" \
+  -n my-namespace
+```
+
+Then reference it in the Pacto CR:
+
+```yaml
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: my-service
+  namespace: my-namespace
+spec:
+  contractRef:
+    oci: ghcr.io/my-org/contracts/my-service
+    pullSecretRef: ghcr-creds
+```
+
+The operator watches the Secret — credential rotation triggers re-reconciliation automatically.
+
+#### Dashboard credentials (Helm value)
+
+To give the dashboard pod access to private registries, create a Secret in the **operator namespace** and set `dashboard.ociSecret`:
 
 ```bash
 kubectl create secret generic oci-creds \
   --from-literal=username=myuser \
   --from-literal=password=mypass \
-  --from-literal=token="" \
   -n pacto-operator-system
 ```
 
@@ -114,8 +146,6 @@ kubectl create secret generic oci-creds \
 dashboard:
   ociSecret: oci-creds
 ```
-
-The operator passes this Secret name to the dashboard pod, which uses the credentials to authenticate when pulling contract bundles. If omitted, the dashboard assumes public (unauthenticated) access.
 
 To disable the dashboard:
 
@@ -199,6 +229,7 @@ The controller exposes Prometheus metrics via OpenTelemetry. By default, the met
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| `pacto_contract_status` | Gauge | Info-style gauge (labels: name, namespace, status). 1 for the current status, 0 for all others |
 | `pacto_contract_compliance_status` | Gauge | 1 = compliant, 0 = non-compliant |
 | `pacto_contract_validation_errors` | Gauge | Count of error-severity failures |
 | `pacto_contract_validation_warnings` | Gauge | Count of warning-severity mismatches |
@@ -212,12 +243,10 @@ metrics:
     enabled: true
 ```
 
-Enable alerting rules:
+Pre-built PrometheusRule alerting templates are available in `config/prometheus/alerts.yaml`. Apply them manually:
 
-```yaml
-metrics:
-  prometheusRule:
-    enabled: true
+```bash
+kubectl apply -f config/prometheus/alerts.yaml
 ```
 
 ## Security
@@ -268,7 +297,6 @@ cosign verify \
 | imagePullSecrets | list | `[]` | Image pull secrets for private registries |
 | leaderElection.enabled | bool | `true` | Enable leader election for HA deployments |
 | metrics.enabled | bool | `true` | Enable the metrics endpoint |
-| metrics.prometheusRule.enabled | bool | `false` | Create PrometheusRule for alerting |
 | metrics.secure | bool | `true` | Serve metrics over HTTPS |
 | metrics.service.port | int | `8443` | Metrics service port |
 | metrics.serviceMonitor.enabled | bool | `false` | Create a Prometheus ServiceMonitor |

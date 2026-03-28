@@ -515,8 +515,8 @@ func TestValidate_WithRuntimeChecks(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.Phase != pactov1alpha1.PhaseHealthy {
-		t.Errorf("expected Healthy, got %s", result.Phase)
+	if result.ContractStatus != pactov1alpha1.ContractStatusCompliant {
+		t.Errorf("expected Compliant, got %s", result.ContractStatus)
 	}
 
 	// Should have: ServiceExists, WorkloadExists, PortsValid, WorkloadTypeMatch,
@@ -535,7 +535,7 @@ func TestValidate_WithRuntimeChecks(t *testing.T) {
 	}
 }
 
-func TestValidate_RuntimeChecksDegraded(t *testing.T) {
+func TestValidate_RuntimeChecksWarning(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.ServiceIdentity{
 			Image: &contract.Image{Ref: "ghcr.io/org/svc:v1.0.0"},
@@ -556,8 +556,8 @@ func TestValidate_RuntimeChecksDegraded(t *testing.T) {
 
 	result := Validate(c, snap, false)
 
-	if result.Phase != pactov1alpha1.PhaseDegraded {
-		t.Errorf("expected Degraded (workload type mismatch), got %s", result.Phase)
+	if result.ContractStatus != pactov1alpha1.ContractStatusWarning {
+		t.Errorf("expected Warning (workload type mismatch), got %s", result.ContractStatus)
 	}
 }
 
@@ -580,8 +580,8 @@ func TestValidate_NoRuntimeSection(t *testing.T) {
 	if len(result.Checks) != 3 {
 		t.Errorf("expected 3 checks (no runtime), got %d", len(result.Checks))
 	}
-	if result.Phase != pactov1alpha1.PhaseHealthy {
-		t.Errorf("expected Healthy, got %s", result.Phase)
+	if result.ContractStatus != pactov1alpha1.ContractStatusCompliant {
+		t.Errorf("expected Compliant, got %s", result.ContractStatus)
 	}
 }
 

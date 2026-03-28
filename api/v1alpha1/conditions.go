@@ -89,11 +89,11 @@ const (
 	SeverityWarning = "warning"
 )
 
-// Phase values.
+// ContractStatus values represent contract compliance state (not runtime health).
 const (
-	PhaseHealthy   = "Healthy"
-	PhaseDegraded  = "Degraded"
-	PhaseInvalid   = "Invalid"
-	PhaseReference = "Reference"
-	PhaseUnknown   = "Unknown"
+	ContractStatusCompliant    = "Compliant"
+	ContractStatusWarning      = "Warning"
+	ContractStatusNonCompliant = "NonCompliant"
+	ContractStatusReference    = "Reference"
+	ContractStatusUnknown      = "Unknown"
 )

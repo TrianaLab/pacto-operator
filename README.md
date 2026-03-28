@@ -11,8 +11,6 @@
 
 The operator watches `Pacto` custom resources, reads the referenced contract, observes the live workload, and reports whether they align. It is read-only and non-intrusive — it never modifies your workloads.
 
-![Pacto Demo](assets/pacto.gif)
-
 ---
 
 ## Where it fits
@@ -66,7 +64,7 @@ Each reconciliation follows a fixed pipeline:
 1. **Loader** resolves the contract from an OCI registry (auto-selecting the highest semver tag) or parses inline YAML.
 2. **Observer** reads runtime state from the Kubernetes API — workload kind, strategy, images, probes, volumes, termination grace period.
 3. **Validator** is a pure function: `(contract, snapshot) → result`. No side effects.
-4. **Controller** coordinates the pipeline, creates `PactoRevision` snapshots for each resolved version, and updates the CR status with structured conditions, a summary phase, and metrics.
+4. **Controller** coordinates the pipeline, creates `PactoRevision` snapshots for each resolved version, and updates the CR status with structured conditions, a contract compliance status, and metrics.
 
 ---
 
@@ -83,7 +81,9 @@ The following checks run on each reconciliation. These are the current built-in 
 | Image | warning | Container image matches contract |
 | HealthTiming | warning | Probe initialDelaySeconds matches contract |
 
-Error-severity failures set the phase to `Invalid`. Warning-severity failures set it to `Degraded`. When all checks pass, the phase is `Healthy`.
+Error-severity failures set the contract status to `NonCompliant`. Warning-severity failures set it to `Warning`. When all checks pass, the status is `Compliant`.
+
+> **Note:** `ContractStatus` reflects contract validation/compliance, not runtime health.
 
 ---
 
@@ -94,8 +94,9 @@ Error-severity failures set the phase to `Invalid`. Warning-severity failures se
 A `Pacto` resource binds a contract source to an optional runtime target:
 
 - **Contract source**: OCI registry reference (`spec.contractRef.oci`) or inline YAML (`spec.contractRef.inline`). OCI references resolve to the highest semver tag automatically.
+- **Private registries**: set `spec.contractRef.pullSecretRef` to the name of a Kubernetes Secret (in the same namespace) containing OCI credentials. See [Private OCI Registries](#private-oci-registries).
 - **Target**: a Kubernetes Service (`spec.target.serviceName`) and workload (`spec.target.workloadRef`). If the workload ref is omitted, it defaults to a Deployment with the same name as the service.
-- **Reference mode**: when no target is specified, the Pacto is reference-only — the contract is resolved and stored, but no runtime validation runs. Phase is `Reference`.
+- **Reference mode**: when no target is specified, the Pacto is reference-only — the contract is resolved and stored, but no runtime validation runs. ContractStatus is `Reference`.
 
 ### PactoRevision
 
@@ -121,7 +122,7 @@ A `PactoRevision` is an immutable snapshot of a resolved contract version. Creat
        serviceName: my-service
    ```
 
-   The operator resolves the highest semver tag from the OCI registry, creates a `PactoRevision` for that version, observes the `my-service` Deployment and Service, runs all checks, and sets the status phase.
+   The operator resolves the highest semver tag from the OCI registry, creates a `PactoRevision` for that version, observes the `my-service` Deployment and Service, runs all checks, and sets the contract status.
 
 3. Check status:
 
@@ -129,13 +130,31 @@ A `PactoRevision` is an immutable snapshot of a resolved contract version. Creat
    kubectl get pactos
    ```
 
-   The `PHASE` column shows: `Healthy` (all checks pass), `Degraded` (warnings), `Invalid` (errors or missing resources), or `Reference` (no target).
+   The `STATUS` column shows: `Compliant` (all checks pass), `Warning` (non-critical mismatches), `NonCompliant` (errors or missing resources), or `Reference` (no target).
 
 4. Inspect conditions for details on individual checks:
 
    ```bash
    kubectl describe pacto my-service
    ```
+
+---
+
+## Breaking change: `status.phase` removed
+
+The `status.phase` field has been removed. Use `status.contractStatus` instead.
+
+| Before (`status.phase`) | After (`status.contractStatus`) |
+|---|---|
+| `Healthy` | `Compliant` |
+| `Degraded` | `Warning` |
+| `Invalid` | `NonCompliant` |
+| `Reference` | `Reference` |
+| `Unknown` | `Unknown` |
+
+`kubectl get pactos` now shows a `STATUS` column (was `PHASE`).
+
+ContractStatus reflects **contract validation/compliance**, not runtime health. Update any scripts, dashboards, alerts, or integrations that read `.status.phase` to use `.status.contractStatus`.
 
 ---
 
@@ -159,6 +178,50 @@ make deploy    # Deploy the controller
 
 ---
 
+## Private OCI Registries
+
+If your contracts are stored in a private OCI registry, create a Kubernetes Secret with credentials and reference it from the Pacto CR via `spec.contractRef.pullSecretRef`.
+
+The Secret must be in the **same namespace** as the Pacto CR and contain one of:
+
+- `token` — a bearer/registry token (e.g. a GitHub PAT), **or**
+- `username` + `password` — basic auth credentials
+
+These are mutually exclusive — if `token` is present it takes precedence.
+
+**Example using a GitHub token:**
+
+```bash
+kubectl create secret generic ghcr-creds \
+  --from-literal=username=x-access-token \
+  --from-literal=password="$(gh auth token)" \
+  -n my-namespace
+```
+
+**Example Pacto CR:**
+
+```yaml
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: my-service
+  namespace: my-namespace
+spec:
+  contractRef:
+    oci: ghcr.io/my-org/contracts/my-service
+    pullSecretRef: ghcr-creds
+  target:
+    serviceName: my-service
+```
+
+The operator watches the referenced Secret — if credentials are rotated, the next reconciliation uses the updated values automatically.
+
+If the Secret is missing or has invalid keys, the Pacto CR status is set to `NonCompliant` with a clear error message.
+
+> **Note:** `spec.contractRef.pullSecretRef` provides credentials for the **operator** to pull contracts. The separate `dashboard.ociSecret` Helm value provides credentials for the **dashboard** pod. These are independent configurations.
+
+---
+
 ## Dashboard
 
 The operator optionally manages a [Pacto Dashboard](https://github.com/TrianaLab/pacto-dashboard) instance. The dashboard provides a visual service graph showing dependencies, contract versions, and compliance status across all Pacto resources in the cluster.
@@ -175,6 +238,7 @@ The controller exposes Prometheus metrics via OpenTelemetry:
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
+| `pacto_contract_status` | Gauge | name, namespace, status | Info-style gauge: 1 for the current status, 0 for all others. Status is one of: Compliant, Warning, NonCompliant, Reference, Unknown |
 | `pacto_contract_compliance_status` | Gauge | service, namespace | 1 = compliant, 0 = non-compliant |
 | `pacto_contract_validation_errors` | Gauge | service, namespace | Count of error-severity failures |
 | `pacto_contract_validation_warnings` | Gauge | service, namespace | Count of warning-severity mismatches |
@@ -188,7 +252,11 @@ metrics:
     enabled: true
 ```
 
-Pre-built alerting rules are available in `config/prometheus/alerts.yaml`.
+Pre-built PrometheusRule alerting templates are available in `config/prometheus/alerts.yaml`. Apply them manually:
+
+```bash
+kubectl apply -f config/prometheus/alerts.yaml
+```
 
 ---
 
@@ -197,7 +265,7 @@ Pre-built alerting rules are available in `config/prometheus/alerts.yaml`.
 - **Enforce or block deployments.** The operator is read-only. It reports drift; it does not prevent it. Use admission webhooks or CI gates if you need enforcement.
 - **Author or publish contracts.** That is the [CLI](https://github.com/TrianaLab/pacto)'s job.
 - **Modify workloads.** It never patches, scales, restarts, or deletes your resources.
-- **Deep protocol validation.** It does not test HTTP endpoints, validate OpenAPI responses, or run integration tests. It checks structural properties (image, strategy, probes, storage) declared in the contract.
+- **Deep protocol validation.** It probes declared health and metrics endpoints for reachability but does not validate OpenAPI responses or run integration tests. It checks structural properties (image, strategy, probes, storage) declared in the contract.
 - **Replace monitoring.** It answers "does the workload match the contract?", not "is the workload healthy?". Use it alongside — not instead of — observability tools.
 
 ---

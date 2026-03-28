@@ -86,6 +86,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `oci` _string_ | OCI is the OCI registry reference for the contract bundle (without tag).<br />The operator automatically resolves the latest semver tag from the registry.<br />Example: ghcr.io/org/service-pacto |  | Optional: \{\} <br /> |
 | `inline` _string_ | Inline allows specifying the contract YAML directly (for testing/dev). |  | Optional: \{\} <br /> |
+| `pullSecretRef` _string_ | PullSecretRef is the name of a Secret in the same namespace containing<br />OCI registry credentials. Supported keys: "token" (bearer token) or<br />"username"+"password" (basic auth). |  | Optional: \{\} <br /> |
 
 
 #### DependencyInfo
@@ -298,7 +299,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `phase` _string_ | Phase is the high-level compliance state. |  | Enum: [Healthy Degraded Invalid Reference Unknown] <br />Optional: \{\} <br /> |
+| `contractStatus` _string_ | ContractStatus is the high-level contract compliance state.<br />This reflects contract validation/compliance and is NOT runtime health. |  | Enum: [Compliant Warning NonCompliant Reference Unknown] <br />Optional: \{\} <br /> |
 | `summary` _[CheckSummary](#checksummary)_ | Summary provides precomputed check counts. |  | Optional: \{\} <br /> |
 | `contractVersion` _string_ | ContractVersion is the version from the parsed contract.<br />Kept for backward compatibility and simple access via JSONPath. |  | Optional: \{\} <br /> |
 | `contract` _[ContractInfo](#contractinfo)_ | Contract exposes parsed contract metadata. |  | Optional: \{\} <br /> |

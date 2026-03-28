@@ -13,15 +13,15 @@ spec:
     - name: pacto.critical
       rules:
         - alert: PactoContractNonCompliant
-          expr: pacto_contract_compliance_status == 0
+          expr: pacto_contract_status{status="NonCompliant"} == 1
           for: 5m
           labels:
             severity: critical
           annotations:
-            summary: "Service {{ $labels.service }} is non-compliant with its contract"
+            summary: "Pacto {{ $labels.name }} is non-compliant with its contract"
             description: >-
-              Service {{ $labels.service }} in namespace {{ $labels.namespace }}
-              has been non-compliant with its Pacto contract for more than 5 minutes.
+              Pacto {{ $labels.name }} in namespace {{ $labels.namespace }}
+              has been non-compliant with its contract for more than 5 minutes.
 
         - alert: PactoContractValidationErrors
           expr: pacto_contract_validation_errors > 0
@@ -125,17 +125,16 @@ spec:
       rules:
         - alert: PactoFleetComplianceDropped
           expr: >-
-            (count(pacto_contract_compliance_status == 1) /
-             count(pacto_contract_compliance_status)) < 0.9
+            (count(pacto_contract_status{status="Compliant"} == 1) /
+             count(pacto_contract_status{status="Compliant"})) < 0.9
           for: 15m
           labels:
             severity: warning
           annotations:
             summary: "Fleet contract compliance dropped below 90%"
             description: >-
-              Less than 90% of services with Pacto contracts are currently
-              compliant. Review the pacto_contract_compliance_status metric
-              for per-service details.
+              Less than 90% of Pacto contracts are currently Compliant.
+              Review the pacto_contract_status metric for per-contract details.
 
         - alert: PactoFleetHighErrorRate
           expr: sum(pacto_contract_validation_errors) > 5
