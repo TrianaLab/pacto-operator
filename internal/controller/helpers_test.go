@@ -1000,6 +1000,54 @@ func TestProbeEndpoints_MetricsOnly(t *testing.T) {
 	}
 }
 
+func TestProbeEndpoints_RuntimeWithoutHealthOrMetrics(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Runtime: &contract.Runtime{
+			Workload: "service",
+			// No Health, no Metrics
+		},
+	}
+
+	checks := r.probeEndpoints(context.Background(), pacto, c, "my-svc")
+	if len(checks) != 0 {
+		t.Fatalf("expected 0 checks, got %d", len(checks))
+	}
+	if pacto.Status.Endpoints != nil {
+		t.Fatal("expected nil endpoints when no health/metrics declared")
+	}
+}
+
+func TestProbeEndpoints_HealthEmptyInterface(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Runtime: &contract.Runtime{
+			Health: &contract.Health{
+				Interface: "", // empty interface
+				Path:      "/health",
+			},
+		},
+	}
+
+	checks := r.probeEndpoints(context.Background(), pacto, c, "my-svc")
+	if len(checks) != 0 {
+		t.Fatalf("expected 0 checks for empty interface, got %d", len(checks))
+	}
+	if pacto.Status.Endpoints != nil {
+		t.Fatal("expected nil endpoints when health interface is empty")
+	}
+}
+
 // ---------- mapObjectToPactos (enqueueForTarget logic) ----------
 
 func newFakeObj(name string) client.Object {
