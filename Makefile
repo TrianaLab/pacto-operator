@@ -46,6 +46,9 @@ LDFLAGS := -ldflags "-s -w \
 # Image URL to use all building/pushing image targets
 IMG ?= ghcr.io/trianalab/pacto-operator/pacto-controller:$(VERSION)
 
+# Namespace used when running locally (defaults to HELM_NAMESPACE)
+POD_NAMESPACE ?= $(HELM_NAMESPACE)
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -83,11 +86,11 @@ check-dashboard-image:
 
 .PHONY: run
 run: manifests generate fmt vet ## Run the operator locally (no dashboard).
-	POD_NAMESPACE=default go run $(LDFLAGS) ./cmd/main.go
+	POD_NAMESPACE=$(POD_NAMESPACE) go run $(LDFLAGS) ./cmd/main.go
 
 .PHONY: run-with-dashboard
 run-with-dashboard: manifests generate fmt vet check-dashboard-image ## Run the operator locally with the dashboard enabled.
-	POD_NAMESPACE=default go run $(LDFLAGS) ./cmd/main.go --enable-dashboard
+	POD_NAMESPACE=$(POD_NAMESPACE) go run $(LDFLAGS) ./cmd/main.go --enable-dashboard
 
 ##@ Development — Local Kubernetes
 
