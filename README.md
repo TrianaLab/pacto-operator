@@ -11,7 +11,7 @@
 
 The operator watches `Pacto` custom resources, reads the referenced contract, observes the live workload, and reports whether they align. It is read-only and non-intrusive — it never modifies your workloads.
 
-https://github.com/user-attachments/assets/665337df-0ea3-4dc3-9b9b-9eeacc5b1c7e
+![Pacto Demo](assets/pacto.gif)
 
 ---
 
