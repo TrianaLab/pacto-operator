@@ -257,6 +257,7 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 	r.Recorder.Event(pacto, corev1.EventTypeWarning, "ContractInvalid", msg)
 
 	// Emit metrics so invalid contracts are visible in Prometheus
+	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)
 	if c != nil && c.Service.Name != "" {
 		metrics.RecordValidation(pacto.Namespace, c.Service.Name, []validator.Check{
 			{Name: pactov1alpha1.ConditionContractValid, Passed: false, Severity: pactov1alpha1.SeverityError},
@@ -287,7 +288,8 @@ func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pacto
 		}
 	}
 
-	// Emit Prometheus metrics using the actual checks (preserves severity)
+	// Emit Prometheus metrics
+	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)
 	if c != nil && c.Service.Name != "" {
 		metrics.RecordValidation(pacto.Namespace, c.Service.Name, checks)
 	}

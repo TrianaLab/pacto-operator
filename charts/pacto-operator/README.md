@@ -229,6 +229,7 @@ The controller exposes Prometheus metrics via OpenTelemetry. By default, the met
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| `pacto_contract_status` | Gauge | Info-style gauge (labels: name, namespace, status). 1 for the current status, 0 for all others |
 | `pacto_contract_compliance_status` | Gauge | 1 = compliant, 0 = non-compliant |
 | `pacto_contract_validation_errors` | Gauge | Count of error-severity failures |
 | `pacto_contract_validation_warnings` | Gauge | Count of warning-severity mismatches |
