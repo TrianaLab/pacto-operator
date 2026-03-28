@@ -66,7 +66,7 @@ Each reconciliation follows a fixed pipeline:
 1. **Loader** resolves the contract from an OCI registry (auto-selecting the highest semver tag) or parses inline YAML.
 2. **Observer** reads runtime state from the Kubernetes API — workload kind, strategy, images, probes, volumes, termination grace period.
 3. **Validator** is a pure function: `(contract, snapshot) → result`. No side effects.
-4. **Controller** coordinates the pipeline, creates `PactoRevision` snapshots for each resolved version, and updates the CR status with structured conditions, a summary phase, and metrics.
+4. **Controller** coordinates the pipeline, creates `PactoRevision` snapshots for each resolved version, and updates the CR status with structured conditions, a contract compliance status, and metrics.
 
 ---
 
@@ -83,7 +83,9 @@ The following checks run on each reconciliation. These are the current built-in 
 | Image | warning | Container image matches contract |
 | HealthTiming | warning | Probe initialDelaySeconds matches contract |
 
-Error-severity failures set the phase to `Invalid`. Warning-severity failures set it to `Degraded`. When all checks pass, the phase is `Healthy`.
+Error-severity failures set the contract status to `NonCompliant`. Warning-severity failures set it to `Warning`. When all checks pass, the status is `Compliant`.
+
+> **Note:** `ContractStatus` reflects contract validation/compliance, not runtime health.
 
 ---
 
@@ -95,7 +97,7 @@ A `Pacto` resource binds a contract source to an optional runtime target:
 
 - **Contract source**: OCI registry reference (`spec.contractRef.oci`) or inline YAML (`spec.contractRef.inline`). OCI references resolve to the highest semver tag automatically.
 - **Target**: a Kubernetes Service (`spec.target.serviceName`) and workload (`spec.target.workloadRef`). If the workload ref is omitted, it defaults to a Deployment with the same name as the service.
-- **Reference mode**: when no target is specified, the Pacto is reference-only — the contract is resolved and stored, but no runtime validation runs. Phase is `Reference`.
+- **Reference mode**: when no target is specified, the Pacto is reference-only — the contract is resolved and stored, but no runtime validation runs. ContractStatus is `Reference`.
 
 ### PactoRevision
 
@@ -121,7 +123,7 @@ A `PactoRevision` is an immutable snapshot of a resolved contract version. Creat
        serviceName: my-service
    ```
 
-   The operator resolves the highest semver tag from the OCI registry, creates a `PactoRevision` for that version, observes the `my-service` Deployment and Service, runs all checks, and sets the status phase.
+   The operator resolves the highest semver tag from the OCI registry, creates a `PactoRevision` for that version, observes the `my-service` Deployment and Service, runs all checks, and sets the contract status.
 
 3. Check status:
 
@@ -129,13 +131,31 @@ A `PactoRevision` is an immutable snapshot of a resolved contract version. Creat
    kubectl get pactos
    ```
 
-   The `PHASE` column shows: `Healthy` (all checks pass), `Degraded` (warnings), `Invalid` (errors or missing resources), or `Reference` (no target).
+   The `STATUS` column shows: `Compliant` (all checks pass), `Warning` (non-critical mismatches), `NonCompliant` (errors or missing resources), or `Reference` (no target).
 
 4. Inspect conditions for details on individual checks:
 
    ```bash
    kubectl describe pacto my-service
    ```
+
+---
+
+## Breaking change: `status.phase` removed
+
+The `status.phase` field has been removed. Use `status.contractStatus` instead.
+
+| Before (`status.phase`) | After (`status.contractStatus`) |
+|---|---|
+| `Healthy` | `Compliant` |
+| `Degraded` | `Warning` |
+| `Invalid` | `NonCompliant` |
+| `Reference` | `Reference` |
+| `Unknown` | `Unknown` |
+
+`kubectl get pactos` now shows a `STATUS` column (was `PHASE`).
+
+ContractStatus reflects **contract validation/compliance**, not runtime health. Update any scripts, dashboards, alerts, or integrations that read `.status.phase` to use `.status.contractStatus`.
 
 ---
 

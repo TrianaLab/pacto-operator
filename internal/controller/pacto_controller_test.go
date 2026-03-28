@@ -62,7 +62,7 @@ var _ = Describe("Pacto Controller", func() {
 			Expect(k8sClient.Delete(ctx, pacto)).To(Succeed())
 		})
 
-		It("should set ContractValid=False and phase=Invalid", func() {
+		It("should set ContractValid=False and contractStatus=NonCompliant", func() {
 			Eventually(func(g Gomega) {
 				pacto := &pactov1alpha1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
@@ -70,7 +70,7 @@ var _ = Describe("Pacto Controller", func() {
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(cond.Reason).To(Equal(pactov1alpha1.ReasonContractInvalid))
-				g.Expect(pacto.Status.Phase).To(Equal(pactov1alpha1.PhaseInvalid))
+				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusNonCompliant))
 			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 		})
 	})
@@ -95,7 +95,7 @@ var _ = Describe("Pacto Controller", func() {
 			Expect(k8sClient.Delete(ctx, pacto)).To(Succeed())
 		})
 
-		It("should set ServiceExists=False and phase=Invalid", func() {
+		It("should set ServiceExists=False and contractStatus=NonCompliant", func() {
 			Eventually(func(g Gomega) {
 				pacto := &pactov1alpha1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
@@ -109,7 +109,7 @@ var _ = Describe("Pacto Controller", func() {
 				g.Expect(svcCond.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(svcCond.Reason).To(Equal(pactov1alpha1.ReasonNotFound))
 
-				g.Expect(pacto.Status.Phase).To(Equal(pactov1alpha1.PhaseInvalid))
+				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusNonCompliant))
 			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 		})
 	})
@@ -138,12 +138,12 @@ var _ = Describe("Pacto Controller", func() {
 			deleteDeployment(svcName, "default")
 		})
 
-		It("should set phase=Healthy with all checks passed", func() {
+		It("should set contractStatus=Compliant with all checks passed", func() {
 			Eventually(func(g Gomega) {
 				pacto := &pactov1alpha1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
 
-				g.Expect(pacto.Status.Phase).To(Equal(pactov1alpha1.PhaseHealthy))
+				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusCompliant))
 				g.Expect(pacto.Status.Summary).NotTo(BeNil())
 				g.Expect(pacto.Status.Summary.Failed).To(Equal(int32(0)))
 				g.Expect(pacto.Status.LastReconciledAt).NotTo(BeNil())
@@ -182,12 +182,12 @@ var _ = Describe("Pacto Controller", func() {
 			deleteDeployment(svcName, "default")
 		})
 
-		It("should set phase=Degraded with missing ports", func() {
+		It("should set contractStatus=Warning with missing ports", func() {
 			Eventually(func(g Gomega) {
 				pacto := &pactov1alpha1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
 
-				g.Expect(pacto.Status.Phase).To(Equal(pactov1alpha1.PhaseDegraded))
+				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusWarning))
 
 				portsCond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionPortsValid)
 				g.Expect(portsCond).NotTo(BeNil())
@@ -220,12 +220,12 @@ var _ = Describe("Pacto Controller", func() {
 			deleteResource(name, "default")
 		})
 
-		It("should set phase=Reference with no runtime conditions", func() {
+		It("should set contractStatus=Reference with no runtime conditions", func() {
 			Eventually(func(g Gomega) {
 				pacto := &pactov1alpha1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
 
-				g.Expect(pacto.Status.Phase).To(Equal(pactov1alpha1.PhaseReference))
+				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusReference))
 				g.Expect(pacto.Status.Summary).NotTo(BeNil())
 				g.Expect(pacto.Status.Summary.Total).To(Equal(int32(1)))
 				g.Expect(pacto.Status.Summary.Passed).To(Equal(int32(1)))
@@ -316,7 +316,7 @@ var _ = Describe("Pacto Controller", func() {
 				pacto := &pactov1alpha1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
 
-				g.Expect(pacto.Status.Phase).To(Equal(pactov1alpha1.PhaseInvalid))
+				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusNonCompliant))
 
 				// No runtime fields should exist
 				g.Expect(pacto.Status.Resources).To(BeNil())

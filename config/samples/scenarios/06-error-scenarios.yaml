@@ -1,10 +1,10 @@
 # Scenario 06: Error scenarios — invalid contracts and missing targets.
 #
-# These produce Degraded/Invalid states to verify the operator handles
+# These produce Warning/NonCompliant contract statuses to verify the operator handles
 # failures correctly and the dashboard displays useful error information.
 ---
 # ghost-service — target does not exist in the cluster.
-# The operator will set phase=Degraded with ServiceExists=False.
+# The operator will set contractStatus=NonCompliant with ServiceExists=False.
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -36,7 +36,7 @@ spec:
           dataCriticality: low
 ---
 # bad-contract — malformed version string.
-# The operator will set phase=Invalid with ContractValid=False.
+# The operator will set contractStatus=NonCompliant with ContractValid=False.
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -54,7 +54,7 @@ spec:
         version: "not-semver"
 ---
 # port-mismatch — contract declares port 9999 but the service exposes 8080.
-# The operator will set phase=Degraded with PortsValid=False.
+# The operator will set contractStatus=Warning with PortsValid=False.
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:

@@ -1759,8 +1759,8 @@ func TestFailReconciliation_NoServiceName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pacto.Status.Phase != pactov1alpha1.PhaseInvalid {
-		t.Fatalf("expected Invalid phase, got %s", pacto.Status.Phase)
+	if pacto.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Fatalf("expected NonCompliant status, got %s", pacto.Status.ContractStatus)
 	}
 }
 
@@ -1783,8 +1783,8 @@ func TestFailReconciliation_NilContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pacto.Status.Phase != pactov1alpha1.PhaseInvalid {
-		t.Fatalf("expected Invalid phase, got %s", pacto.Status.Phase)
+	if pacto.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Fatalf("expected NonCompliant status, got %s", pacto.Status.ContractStatus)
 	}
 	if pacto.Status.Summary == nil || pacto.Status.Summary.Failed != 1 {
 		t.Fatalf("unexpected summary: %+v", pacto.Status.Summary)
@@ -2075,9 +2075,9 @@ func TestReconcile_SyncAllRevisionsError(t *testing.T) {
 	}
 }
 
-// ---------- computeFinalPhase ----------
+// ---------- computeFinalContractStatus ----------
 
-func TestComputeFinalPhase_Healthy(t *testing.T) {
+func TestComputeFinalContractStatus_Compliant(t *testing.T) {
 	r := newReconciler()
 	pacto := &pactov1alpha1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
@@ -2088,13 +2088,13 @@ func TestComputeFinalPhase_Healthy(t *testing.T) {
 			},
 		},
 	}
-	phase := r.computeFinalPhase(pacto)
-	if phase != pactov1alpha1.PhaseHealthy {
-		t.Fatalf("expected Healthy, got %s", phase)
+	cs := r.computeFinalContractStatus(pacto)
+	if cs != pactov1alpha1.ContractStatusCompliant {
+		t.Fatalf("expected Compliant, got %s", cs)
 	}
 }
 
-func TestComputeFinalPhase_Invalid(t *testing.T) {
+func TestComputeFinalContractStatus_NonCompliant(t *testing.T) {
 	r := newReconciler()
 	pacto := &pactov1alpha1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
@@ -2104,13 +2104,13 @@ func TestComputeFinalPhase_Invalid(t *testing.T) {
 			},
 		},
 	}
-	phase := r.computeFinalPhase(pacto)
-	if phase != pactov1alpha1.PhaseInvalid {
-		t.Fatalf("expected Invalid, got %s", phase)
+	cs := r.computeFinalContractStatus(pacto)
+	if cs != pactov1alpha1.ContractStatusNonCompliant {
+		t.Fatalf("expected NonCompliant, got %s", cs)
 	}
 }
 
-func TestComputeFinalPhase_Degraded(t *testing.T) {
+func TestComputeFinalContractStatus_Warning(t *testing.T) {
 	r := newReconciler()
 	pacto := &pactov1alpha1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
@@ -2121,9 +2121,9 @@ func TestComputeFinalPhase_Degraded(t *testing.T) {
 			},
 		},
 	}
-	phase := r.computeFinalPhase(pacto)
-	if phase != pactov1alpha1.PhaseDegraded {
-		t.Fatalf("expected Degraded, got %s", phase)
+	cs := r.computeFinalContractStatus(pacto)
+	if cs != pactov1alpha1.ContractStatusWarning {
+		t.Fatalf("expected Warning, got %s", cs)
 	}
 }
 
@@ -2135,7 +2135,7 @@ func TestResetDerivedStatus(t *testing.T) {
 	pacto := &pactov1alpha1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Status: pactov1alpha1.PactoStatus{
-			Phase:            pactov1alpha1.PhaseHealthy,
+			ContractStatus:   pactov1alpha1.ContractStatusCompliant,
 			Summary:          &pactov1alpha1.CheckSummary{Total: 5, Passed: 3, Failed: 2},
 			ContractVersion:  "1.0.0",
 			Contract:         &pactov1alpha1.ContractInfo{ServiceName: "svc"},
@@ -2152,8 +2152,8 @@ func TestResetDerivedStatus(t *testing.T) {
 
 	r.resetDerivedStatus(pacto)
 
-	if pacto.Status.Phase != "" {
-		t.Fatalf("expected empty phase, got %s", pacto.Status.Phase)
+	if pacto.Status.ContractStatus != "" {
+		t.Fatalf("expected empty contractStatus, got %s", pacto.Status.ContractStatus)
 	}
 	if pacto.Status.Summary != nil {
 		t.Fatal("expected nil summary")
@@ -2196,7 +2196,7 @@ func TestApplyValidationResult_Full(t *testing.T) {
 	}
 
 	result := validator.Result{
-		Phase: pactov1alpha1.PhaseHealthy,
+		ContractStatus: pactov1alpha1.ContractStatusCompliant,
 		Checks: []validator.Check{
 			{Name: pactov1alpha1.ConditionServiceExists, Passed: true, Reason: "Found", Message: "Service exists"},
 			{Name: pactov1alpha1.ConditionWorkloadExists, Passed: true, Reason: "Found", Message: "Workload exists"},
@@ -2592,13 +2592,13 @@ func TestReconcile_ValidationErrors(t *testing.T) {
 		t.Error("expected requeue after validation errors")
 	}
 
-	// Verify the pacto status was updated with Invalid phase
+	// Verify the pacto status was updated with NonCompliant status
 	var updated pactov1alpha1.Pacto
 	if err := r.Get(context.Background(), client.ObjectKey{Name: "my-pacto", Namespace: "default"}, &updated); err != nil {
 		t.Fatalf("failed to get updated pacto: %v", err)
 	}
-	if updated.Status.Phase != pactov1alpha1.PhaseInvalid {
-		t.Errorf("expected phase Invalid, got %s", updated.Status.Phase)
+	if updated.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Errorf("expected NonCompliant, got %s", updated.Status.ContractStatus)
 	}
 }
 

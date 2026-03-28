@@ -134,7 +134,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue,
 			pactov1alpha1.ReasonReferenceOnly,
 			fmt.Sprintf("Reference contract %s v%s is valid", loadResult.Contract.Service.Name, loadResult.Contract.Service.Version))
-		pacto.Status.Phase = pactov1alpha1.PhaseReference
+		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusReference
 		pacto.Status.Summary = &pactov1alpha1.CheckSummary{Total: 1, Passed: 1}
 		return r.finishReconciliation(ctx, pacto, loadResult.Contract, []validator.Check{
 			{Name: pactov1alpha1.ConditionContractValid, Passed: true, Severity: pactov1alpha1.SeverityError},
@@ -150,7 +150,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	snapshot, err := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
 	if err != nil {
 		log.Error(err, "Failed to observe runtime state")
-		pacto.Status.Phase = pactov1alpha1.PhaseUnknown
+		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusUnknown
 		return r.finishReconciliation(ctx, pacto, loadResult.Contract, []validator.Check{
 			{Name: pactov1alpha1.ConditionContractValid, Passed: true, Severity: pactov1alpha1.SeverityError},
 		})
@@ -188,8 +188,8 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		allChecks = append(allChecks, endpointChecks...)
 	}
 
-	// 15. Compute final phase including all checks
-	pacto.Status.Phase = r.computeFinalPhase(pacto)
+	// 15. Compute final contract status including all checks
+	pacto.Status.ContractStatus = r.computeFinalContractStatus(pacto)
 
 	return r.finishReconciliation(ctx, pacto, loadResult.Contract, allChecks)
 }
@@ -197,7 +197,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 // resetDerivedStatus clears all status fields that are recomputed each reconciliation.
 // This prevents stale data from a previous reconciliation from surviving.
 func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
-	pacto.Status.Phase = ""
+	pacto.Status.ContractStatus = ""
 	pacto.Status.Summary = nil
 	pacto.Status.ContractVersion = ""
 	pacto.Status.Contract = nil
@@ -218,13 +218,13 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 }
 
 // failReconciliation handles the common pattern for contract-level failures:
-// sets ContractValid=False, phase=Invalid, summary={1,0,1}, updates status.
+// sets ContractValid=False, contractStatus=NonCompliant, summary={1,0,1}, updates status.
 func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, c *contract.Contract) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
 		pactov1alpha1.ReasonContractInvalid, msg)
-	pacto.Status.Phase = pactov1alpha1.PhaseInvalid
+	pacto.Status.ContractStatus = pactov1alpha1.ContractStatusNonCompliant
 	pacto.Status.Summary = &pactov1alpha1.CheckSummary{Total: 1, Failed: 1}
 	pacto.Status.Validation = valResult
 
@@ -261,10 +261,10 @@ func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pacto
 		return ctrl.Result{}, statusErr
 	}
 
-	if pacto.Status.Phase != pactov1alpha1.PhaseHealthy && pacto.Status.Phase != pactov1alpha1.PhaseReference {
+	if pacto.Status.ContractStatus != pactov1alpha1.ContractStatusCompliant && pacto.Status.ContractStatus != pactov1alpha1.ContractStatusReference {
 		if pacto.Status.Summary != nil {
 			r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "ValidationFailed",
-				"Phase: %s, %d/%d checks failed", pacto.Status.Phase, pacto.Status.Summary.Failed, pacto.Status.Summary.Total)
+				"ContractStatus: %s, %d/%d checks failed", pacto.Status.ContractStatus, pacto.Status.Summary.Failed, pacto.Status.Summary.Total)
 		}
 	}
 
@@ -273,7 +273,7 @@ func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pacto
 		metrics.RecordValidation(pacto.Namespace, c.Service.Name, checks)
 	}
 
-	log.Info("Reconciliation complete", "phase", pacto.Status.Phase)
+	log.Info("Reconciliation complete", "contractStatus", pacto.Status.ContractStatus)
 	return ctrl.Result{RequeueAfter: r.requeueInterval(pacto)}, nil
 }
 
@@ -642,9 +642,9 @@ func evaluateProbeResult(result prober.Result, url string, spec probeSpec) (vali
 	}, epResult
 }
 
-// computeFinalPhase derives the phase from all conditions set on the CR.
+// computeFinalContractStatus derives the contract compliance status from all conditions set on the CR.
 // This is called once, after all checks (validator + probing) are complete.
-func (r *PactoReconciler) computeFinalPhase(pacto *pactov1alpha1.Pacto) string {
+func (r *PactoReconciler) computeFinalContractStatus(pacto *pactov1alpha1.Pacto) string {
 	hasResourceFailure := false
 	hasOtherFailure := false
 
@@ -660,12 +660,12 @@ func (r *PactoReconciler) computeFinalPhase(pacto *pactov1alpha1.Pacto) string {
 	}
 
 	if hasResourceFailure {
-		return pactov1alpha1.PhaseInvalid
+		return pactov1alpha1.ContractStatusNonCompliant
 	}
 	if hasOtherFailure {
-		return pactov1alpha1.PhaseDegraded
+		return pactov1alpha1.ContractStatusWarning
 	}
-	return pactov1alpha1.PhaseHealthy
+	return pactov1alpha1.ContractStatusCompliant
 }
 
 func (r *PactoReconciler) setCondition(pacto *pactov1alpha1.Pacto, condType string, status metav1.ConditionStatus, reason, message string) {

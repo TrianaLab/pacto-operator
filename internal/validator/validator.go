@@ -29,9 +29,9 @@ type Check struct {
 
 // Result is the output of validation.
 type Result struct {
-	Checks []Check
-	Ports  PortsResult
-	Phase  string // "Healthy", "Degraded", "Invalid"
+	Checks         []Check
+	Ports          PortsResult
+	ContractStatus string // "Compliant", "Warning", "NonCompliant"
 }
 
 // PortsResult is the explicit port comparison.
@@ -88,7 +88,7 @@ func Validate(c *contract.Contract, snap *observer.RuntimeSnapshot, hasService b
 		}
 	}
 
-	result.Phase = computePhase(result.Checks)
+	result.ContractStatus = computeContractStatus(result.Checks)
 	return result
 }
 
@@ -186,11 +186,11 @@ func contractPorts(c *contract.Contract) []int32 {
 	return ports
 }
 
-// computePhase derives the phase from check results.
-// Invalid: any resource missing (service or workload not found).
-// Degraded: any check failed (severity error or warning).
-// Healthy: all checks pass.
-func computePhase(checks []Check) string {
+// computeContractStatus derives the contract compliance status from check results.
+// NonCompliant: any resource missing (service or workload not found).
+// Warning: any check failed (severity error or warning).
+// Compliant: all checks pass.
+func computeContractStatus(checks []Check) string {
 	hasResourceFailure := false
 	hasOtherFailure := false
 
@@ -206,10 +206,10 @@ func computePhase(checks []Check) string {
 	}
 
 	if hasResourceFailure {
-		return pactov1alpha1.PhaseInvalid
+		return pactov1alpha1.ContractStatusNonCompliant
 	}
 	if hasOtherFailure {
-		return pactov1alpha1.PhaseDegraded
+		return pactov1alpha1.ContractStatusWarning
 	}
-	return pactov1alpha1.PhaseHealthy
+	return pactov1alpha1.ContractStatusCompliant
 }
