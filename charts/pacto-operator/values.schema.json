@@ -123,13 +123,6 @@
             "interval": { "type": "string" },
             "scrapeTimeout": { "type": "string" }
           }
-        },
-        "prometheusRule": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "enabled": { "type": "boolean" }
-          }
         }
       }
     },

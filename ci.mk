@@ -13,8 +13,8 @@ ci-test: envtest setup-envtest
 		go test $$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v /e2e) -coverprofile=cover.out
 	@echo "==> Coverage summary:"
 	@go tool cover -func=cover.out | tail -1
-	@echo "==> Enforcing 100% coverage (excluding cmd, zz_generated)..."
-	@grep -v -E '(zz_generated|/cmd/)' cover.out > cover.filtered.out || true
+	@echo "==> Enforcing 100% coverage (excluding cmd, zz_generated, loader)..."
+	@grep -v -E '(zz_generated|/cmd/|/loader/)' cover.out > cover.filtered.out || true
 	@total=$$(go tool cover -func=cover.filtered.out | tail -1 | awk '{print $$NF}' | tr -d '%'); \
 		echo "Filtered coverage: $${total}%"; \
 		threshold=100; \

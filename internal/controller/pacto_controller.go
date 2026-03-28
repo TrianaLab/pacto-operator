@@ -27,6 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
 	"github.com/trianalab/pacto-operator/internal/loader"
 	"github.com/trianalab/pacto-operator/internal/metrics"
@@ -39,8 +41,8 @@ import (
 
 // ContractLoader abstracts contract loading and tag listing.
 type ContractLoader interface {
-	Load(ctx context.Context, ociRef, inline string) (*loader.LoadResult, error)
-	ListTags(ctx context.Context, ociRef string) ([]string, error)
+	Load(ctx context.Context, ociRef, inline string, authOverride *authn.AuthConfig) (*loader.LoadResult, error)
+	ListTags(ctx context.Context, ociRef string, authOverride *authn.AuthConfig) ([]string, error)
 }
 
 // PactoReconciler reconciles a Pacto object.
@@ -57,6 +59,7 @@ type PactoReconciler struct {
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactorevisions,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactorevisions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;replicasets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs;cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -77,7 +80,21 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	//    Fields will be repopulated by each step below.
 	r.resetDerivedStatus(pacto)
 
-	// 3. Reject OCI refs with explicit tags (the operator auto-resolves semver)
+	// 3. Resolve pull secret credentials (if specified)
+	var ociAuth *authn.AuthConfig
+	if secretName := pacto.Spec.ContractRef.PullSecretRef; secretName != "" {
+		auth, secretErr := r.resolveOCIAuth(ctx, pacto.Namespace, secretName)
+		if secretErr != nil {
+			return r.failReconciliation(ctx, pacto, fmt.Sprintf("failed to read pull secret %q: %v", secretName, secretErr),
+				&pactov1alpha1.ValidationResult{
+					Valid:  false,
+					Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.contractRef.pullSecretRef", Message: secretErr.Error()}},
+				}, nil)
+		}
+		ociAuth = auth
+	}
+
+	// 4. Reject OCI refs with explicit tags (the operator auto-resolves semver)
 	ociRef := pacto.Spec.ContractRef.OCI
 	if pactov1alpha1.HasExplicitTag(ociRef) {
 		msg := fmt.Sprintf("contractRef.oci must not include a tag (got %q); the operator auto-resolves the latest semver version", ociRef)
@@ -88,8 +105,8 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			}, nil)
 	}
 
-	// 4. Load the contract
-	loadResult, err := r.Loader.Load(ctx, ociRef, pacto.Spec.ContractRef.Inline)
+	// 5. Load the contract
+	loadResult, err := r.Loader.Load(ctx, ociRef, pacto.Spec.ContractRef.Inline, ociAuth)
 	if err != nil {
 		return r.failReconciliation(ctx, pacto, err.Error(),
 			&pactov1alpha1.ValidationResult{
@@ -124,7 +141,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	if ociRef != "" {
-		if syncErr := r.syncAllRevisions(ctx, pacto, ociRef); syncErr != nil {
+		if syncErr := r.syncAllRevisions(ctx, pacto, ociRef, ociAuth); syncErr != nil {
 			log.Error(syncErr, "Failed to sync all revisions")
 		}
 	}
@@ -151,6 +168,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if err != nil {
 		log.Error(err, "Failed to observe runtime state")
 		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusUnknown
+		pacto.Status.Summary = &pactov1alpha1.CheckSummary{Total: 1, Passed: 1}
 		return r.finishReconciliation(ctx, pacto, loadResult.Contract, []validator.Check{
 			{Name: pactov1alpha1.ConditionContractValid, Passed: true, Severity: pactov1alpha1.SeverityError},
 		})
@@ -234,6 +252,7 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 
 	if statusErr := r.Status().Update(ctx, pacto); statusErr != nil {
 		log.Error(statusErr, "Failed to update status")
+		return ctrl.Result{}, statusErr
 	}
 	r.Recorder.Event(pacto, corev1.EventTypeWarning, "ContractInvalid", msg)
 
@@ -806,10 +825,10 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 	return revisionName, nil
 }
 
-func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1alpha1.Pacto, baseRef string) error {
+func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1alpha1.Pacto, baseRef string, ociAuth *authn.AuthConfig) error {
 	log := logf.FromContext(ctx)
 
-	tags, err := r.Loader.ListTags(ctx, baseRef)
+	tags, err := r.Loader.ListTags(ctx, baseRef, ociAuth)
 	if err != nil {
 		return fmt.Errorf("failed to list tags: %w", err)
 	}
@@ -835,7 +854,7 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 			continue
 		}
 
-		loadResult, loadErr := r.Loader.Load(ctx, taggedRef, "")
+		loadResult, loadErr := r.Loader.Load(ctx, taggedRef, "", ociAuth)
 		if loadErr != nil {
 			log.V(1).Info("Skipping tag: failed to load", "tag", tag, "error", loadErr)
 			continue
@@ -852,12 +871,34 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 	return nil
 }
 
+// resolveOCIAuth reads a Secret and extracts OCI registry credentials.
+// Supported keys: "token" (bearer/registry token) OR "username"+"password" (basic auth).
+func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretName string) (*authn.AuthConfig, error) {
+	secret := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret); err != nil {
+		return nil, fmt.Errorf("secret %q not found: %w", secretName, err)
+	}
+
+	if token := string(secret.Data["token"]); token != "" {
+		return &authn.AuthConfig{RegistryToken: token}, nil
+	}
+
+	user := string(secret.Data["username"])
+	pass := string(secret.Data["password"])
+	if user != "" && pass != "" {
+		return &authn.AuthConfig{Username: user, Password: pass}, nil
+	}
+
+	return nil, fmt.Errorf("secret %q must contain either 'token' or 'username'+'password' keys", secretName)
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&pactov1alpha1.Pacto{}).
 		Owns(&pactov1alpha1.PactoRevision{}).
 		Watches(&corev1.Service{}, enqueueForTarget(mgr.GetClient())).
+		Watches(&corev1.Secret{}, enqueueForPullSecret(mgr.GetClient())).
 		Watches(&appsv1.Deployment{}, enqueueForTarget(mgr.GetClient())).
 		Watches(&appsv1.StatefulSet{}, enqueueForTarget(mgr.GetClient())).
 		Watches(&appsv1.ReplicaSet{}, enqueueForTarget(mgr.GetClient())).

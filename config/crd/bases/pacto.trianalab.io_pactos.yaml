@@ -82,6 +82,12 @@ spec:
                       The operator automatically resolves the latest semver tag from the registry.
                       Example: ghcr.io/org/service-pacto
                     type: string
+                  pullSecretRef:
+                    description: |-
+                      PullSecretRef is the name of a Secret in the same namespace containing
+                      OCI registry credentials. Supported keys: "token" (bearer token) or
+                      "username"+"password" (basic auth).
+                    type: string
                 type: object
               target:
                 description: |-

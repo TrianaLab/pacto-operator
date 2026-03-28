@@ -24,6 +24,12 @@ type ContractRef struct {
 	// Inline allows specifying the contract YAML directly (for testing/dev).
 	// +optional
 	Inline string `json:"inline,omitempty"`
+
+	// PullSecretRef is the name of a Secret in the same namespace containing
+	// OCI registry credentials. Supported keys: "token" (bearer token) or
+	// "username"+"password" (basic auth).
+	// +optional
+	PullSecretRef string `json:"pullSecretRef,omitempty"`
 }
 
 // WorkloadRef identifies a workload resource by name and kind.

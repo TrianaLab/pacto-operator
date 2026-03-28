@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
@@ -54,7 +55,8 @@ func New() *Loader {
 
 // Load resolves a Pacto contract from the given spec.
 // Results are cached for 30s to avoid redundant parsing during rapid reconciliation.
-func (l *Loader) Load(ctx context.Context, ociRef, inline string) (*LoadResult, error) {
+// authOverride provides per-call credentials from a K8s Secret (nil uses default keychains).
+func (l *Loader) Load(ctx context.Context, ociRef, inline string, authOverride *authn.AuthConfig) (*LoadResult, error) {
 	key := l.cacheKey(ociRef, inline)
 
 	// Check cache
@@ -72,7 +74,7 @@ func (l *Loader) Load(ctx context.Context, ociRef, inline string) (*LoadResult, 
 		result, err = loadInline(inline)
 	} else if ociRef != "" {
 		ociRef = normalizeOCIRef(ociRef)
-		result, err = l.oci.Pull(ctx, ociRef)
+		result, err = l.oci.Pull(ctx, ociRef, authOverride)
 	} else {
 		return nil, fmt.Errorf("no contract source specified: set either spec.contractRef.oci or spec.contractRef.inline")
 	}
@@ -99,11 +101,11 @@ func (l *Loader) Load(ctx context.Context, ociRef, inline string) (*LoadResult, 
 }
 
 // ListTags returns all semver tags for the given OCI repository.
-func (l *Loader) ListTags(ctx context.Context, ociRef string) ([]string, error) {
+func (l *Loader) ListTags(ctx context.Context, ociRef string, authOverride *authn.AuthConfig) ([]string, error) {
 	if ociRef == "" {
 		return nil, nil
 	}
-	return l.oci.ListTags(ctx, normalizeOCIRef(ociRef))
+	return l.oci.ListTags(ctx, normalizeOCIRef(ociRef), authOverride)
 }
 
 func (l *Loader) cacheKey(ociRef, inline string) string {
