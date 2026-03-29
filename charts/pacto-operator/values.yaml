@@ -99,6 +99,15 @@ dashboard:
   enabled: true
   # -- Optional Secret name for OCI registry credentials (keys: username, password, token)
   ociSecret: ""
+  # -- Resource requests and limits for the dashboard container.
+  # The previous default of 128Mi memory limit caused OOMKill when monitoring
+  # multiple OCI repositories and CRs simultaneously.
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
   service:
     # -- Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer).
     # The operator manages an internal ClusterIP Service (pacto-dashboard) for

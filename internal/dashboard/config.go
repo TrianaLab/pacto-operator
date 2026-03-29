@@ -7,7 +7,12 @@ See LICENSE file in the project root for full license text.
 
 package dashboard
 
-import "fmt"
+import (
+	"fmt"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+)
 
 // Config holds the global dashboard deployment configuration.
 type Config struct {
@@ -31,6 +36,49 @@ type Config struct {
 	// containing OCI registry credentials. If set, the dashboard will use these for
 	// registry access via PACTO_REGISTRY_* environment variables.
 	OCISecret string
+
+	// Resources overrides the dashboard container's resource requirements.
+	// Zero-value fields fall back to built-in defaults.
+	Resources ResourcesConfig
+}
+
+// ResourcesConfig holds optional resource quantity overrides for the dashboard container.
+type ResourcesConfig struct {
+	CPURequest    string
+	CPULimit      string
+	MemoryRequest string
+	MemoryLimit   string
+}
+
+// DefaultResources returns the built-in default resource requirements.
+func DefaultResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+}
+
+// BuildResources returns resource requirements, applying any overrides from the config.
+func (rc ResourcesConfig) BuildResources() corev1.ResourceRequirements {
+	res := DefaultResources()
+	if rc.CPURequest != "" {
+		res.Requests[corev1.ResourceCPU] = resource.MustParse(rc.CPURequest)
+	}
+	if rc.MemoryRequest != "" {
+		res.Requests[corev1.ResourceMemory] = resource.MustParse(rc.MemoryRequest)
+	}
+	if rc.CPULimit != "" {
+		res.Limits[corev1.ResourceCPU] = resource.MustParse(rc.CPULimit)
+	}
+	if rc.MemoryLimit != "" {
+		res.Limits[corev1.ResourceMemory] = resource.MustParse(rc.MemoryLimit)
+	}
+	return res
 }
 
 // Validate checks that the config is valid when the feature is enabled.

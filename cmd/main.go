@@ -71,6 +71,8 @@ func main() {
 	var enableDashboard bool
 	var watchNamespace string
 	var dashboardOCISecret string
+	var dashboardCPURequest, dashboardCPULimit string
+	var dashboardMemoryRequest, dashboardMemoryLimit string
 	var showVersion bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to. "+
@@ -98,6 +100,14 @@ func main() {
 	flag.StringVar(&dashboardOCISecret, "dashboard-oci-secret", "",
 		"Optional: name of a Secret in the operator namespace containing OCI registry credentials "+
 			"(keys: username, password, token).")
+	flag.StringVar(&dashboardCPURequest, "dashboard-cpu-request", "",
+		"CPU request for the dashboard container (e.g. 50m). Empty uses the built-in default.")
+	flag.StringVar(&dashboardCPULimit, "dashboard-cpu-limit", "",
+		"CPU limit for the dashboard container (e.g. 200m). Empty uses the built-in default.")
+	flag.StringVar(&dashboardMemoryRequest, "dashboard-memory-request", "",
+		"Memory request for the dashboard container (e.g. 128Mi). Empty uses the built-in default.")
+	flag.StringVar(&dashboardMemoryLimit, "dashboard-memory-limit", "",
+		"Memory limit for the dashboard container (e.g. 512Mi). Empty uses the built-in default.")
 	flag.BoolVar(&showVersion, "version", false, "Print version information and exit.")
 	opts := zap.Options{
 		Development: true,
@@ -253,6 +263,12 @@ func main() {
 		Namespace:      dashboardNamespace,
 		WatchNamespace: watchNamespace,
 		OCISecret:      dashboardOCISecret,
+		Resources: dashboard.ResourcesConfig{
+			CPURequest:    dashboardCPURequest,
+			CPULimit:      dashboardCPULimit,
+			MemoryRequest: dashboardMemoryRequest,
+			MemoryLimit:   dashboardMemoryLimit,
+		},
 	}
 	if err := dashCfg.Validate(); err != nil {
 		setupLog.Error(err, "Invalid dashboard configuration")

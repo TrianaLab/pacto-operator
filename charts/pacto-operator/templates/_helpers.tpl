@@ -79,5 +79,23 @@ Controller arguments derived from values
 {{- if .Values.dashboard.ociSecret }}
 - --dashboard-oci-secret={{ .Values.dashboard.ociSecret }}
 {{- end }}
+{{- with .Values.dashboard.resources }}
+{{- if .requests }}
+{{- if .requests.cpu }}
+- --dashboard-cpu-request={{ .requests.cpu }}
+{{- end }}
+{{- if .requests.memory }}
+- --dashboard-memory-request={{ .requests.memory }}
+{{- end }}
+{{- end }}
+{{- if .limits }}
+{{- if .limits.cpu }}
+- --dashboard-cpu-limit={{ .limits.cpu }}
+{{- end }}
+{{- if .limits.memory }}
+- --dashboard-memory-limit={{ .limits.memory }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}

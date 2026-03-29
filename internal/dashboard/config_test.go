@@ -114,6 +114,42 @@ func TestHasLatestTag(t *testing.T) {
 	}
 }
 
+func TestBuildResources_Defaults(t *testing.T) {
+	rc := ResourcesConfig{}
+	res := rc.BuildResources()
+	if res.Requests.Cpu().String() != "50m" {
+		t.Errorf("expected default CPU request 50m, got %s", res.Requests.Cpu().String())
+	}
+	if res.Requests.Memory().String() != "128Mi" {
+		t.Errorf("expected default memory request 128Mi, got %s", res.Requests.Memory().String())
+	}
+	if res.Limits.Memory().String() != "512Mi" {
+		t.Errorf("expected default memory limit 512Mi, got %s", res.Limits.Memory().String())
+	}
+}
+
+func TestBuildResources_AllOverrides(t *testing.T) {
+	rc := ResourcesConfig{
+		CPURequest:    "100m",
+		CPULimit:      "500m",
+		MemoryRequest: "256Mi",
+		MemoryLimit:   "1Gi",
+	}
+	res := rc.BuildResources()
+	if res.Requests.Cpu().String() != "100m" {
+		t.Errorf("expected CPU request 100m, got %s", res.Requests.Cpu().String())
+	}
+	if res.Limits.Cpu().String() != "500m" {
+		t.Errorf("expected CPU limit 500m, got %s", res.Limits.Cpu().String())
+	}
+	if res.Requests.Memory().String() != "256Mi" {
+		t.Errorf("expected memory request 256Mi, got %s", res.Requests.Memory().String())
+	}
+	if res.Limits.Memory().String() != "1Gi" {
+		t.Errorf("expected memory limit 1Gi, got %s", res.Limits.Memory().String())
+	}
+}
+
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }
