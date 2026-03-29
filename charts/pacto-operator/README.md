@@ -287,6 +287,7 @@ cosign verify \
 | dashboard.ingress.hosts | list | `[{"host":"pacto-dashboard.local","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress hosts |
 | dashboard.ingress.tls | list | `[]` | Ingress TLS configuration |
 | dashboard.ociSecret | string | `""` | Optional Secret name for OCI registry credentials (keys: username, password, token) |
+| dashboard.resources | object | `{"limits":{"memory":"512Mi"},"requests":{"cpu":"50m","memory":"128Mi"}}` | Resource requests and limits for the dashboard container. The previous default of 128Mi memory limit caused OOMKill when monitoring multiple OCI repositories and CRs simultaneously. |
 | dashboard.service.nodePort | string | `""` | Node port (only used when type is NodePort) |
 | dashboard.service.port | int | `3000` | Dashboard service port |
 | dashboard.service.type | string | `"ClusterIP"` | Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-dashboard) for pod-to-pod communication. This chart-managed Service provides configurable external access and serves as the backend for Ingress/HTTPRoute resources. Selects dashboard pods via operator-defined labels. |
