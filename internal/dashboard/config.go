@@ -73,9 +73,6 @@ func (rc ResourcesConfig) BuildResources() corev1.ResourceRequirements {
 		res.Requests[corev1.ResourceMemory] = resource.MustParse(rc.MemoryRequest)
 	}
 	if rc.CPULimit != "" {
-		if res.Limits == nil {
-			res.Limits = corev1.ResourceList{}
-		}
 		res.Limits[corev1.ResourceCPU] = resource.MustParse(rc.CPULimit)
 	}
 	if rc.MemoryLimit != "" {

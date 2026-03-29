@@ -179,6 +179,14 @@
             "hostnames": { "type": "array", "items": { "type": "string" } },
             "rules": { "type": "array" }
           }
+        },
+        "resources": {
+          "type": "object",
+          "description": "Resource requests and limits for the dashboard container",
+          "properties": {
+            "limits": { "type": "object" },
+            "requests": { "type": "object" }
+          }
         }
       }
     },
