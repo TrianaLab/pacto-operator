@@ -29,9 +29,8 @@ type Check struct {
 
 // Result is the output of validation.
 type Result struct {
-	Checks         []Check
-	Ports          PortsResult
-	ContractStatus string // "Compliant", "Warning", "NonCompliant"
+	Checks []Check
+	Ports  PortsResult
 }
 
 // PortsResult is the explicit port comparison.
@@ -88,7 +87,6 @@ func Validate(c *contract.Contract, snap *observer.RuntimeSnapshot, hasService b
 		}
 	}
 
-	result.ContractStatus = computeContractStatus(result.Checks)
 	return result
 }
 

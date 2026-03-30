@@ -8,8 +8,11 @@ See LICENSE file in the project root for full license text.
 package loader
 
 import (
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/google/go-containerregistry/pkg/authn"
 )
 
 func TestTagCacheKey(t *testing.T) {
@@ -152,5 +155,87 @@ func TestListTags_OCIPrefixNormalized(t *testing.T) {
 	}
 	if len(tags) != 1 || tags[0] != "3.0.0" {
 		t.Fatalf("expected cached tags [3.0.0], got %v", tags)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BUG-2: authOverride bypasses cache
+// ---------------------------------------------------------------------------
+
+func TestListTags_AuthOverrideBypassesCache(t *testing.T) {
+	l := &Loader{
+		tagCache:    make(map[string]tagCacheEntry),
+		tagCacheTTL: 5 * time.Minute,
+		oci:         &OCIPuller{},
+	}
+
+	// Pre-populate cache
+	key := tagCacheKey("ghcr.io/org/svc")
+	l.tagCache[key] = tagCacheEntry{
+		tags:      []string{"1.0.0"},
+		expiresAt: time.Now().Add(5 * time.Minute),
+	}
+
+	// With authOverride, cache should be bypassed — the real OCI puller
+	// will fail (no registry), proving the cache was not used
+	auth := &authn.AuthConfig{Username: "user", Password: "pass"}
+	_, err := l.ListTags(t.Context(), "ghcr.io/org/svc", auth)
+	if err == nil {
+		t.Fatal("expected error from real OCI call — cache should be bypassed when authOverride is set")
+	}
+}
+
+func TestListTags_NilAuthUsesCache(t *testing.T) {
+	l := &Loader{
+		tagCache:    make(map[string]tagCacheEntry),
+		tagCacheTTL: 5 * time.Minute,
+		oci:         &OCIPuller{},
+	}
+
+	key := tagCacheKey("ghcr.io/org/svc")
+	l.tagCache[key] = tagCacheEntry{
+		tags:      []string{"1.0.0"},
+		expiresAt: time.Now().Add(5 * time.Minute),
+	}
+
+	// Without authOverride, cache should be used
+	tags, err := l.ListTags(t.Context(), "ghcr.io/org/svc", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tags) != 1 {
+		t.Fatalf("expected cached tags, got %v", tags)
+	}
+}
+
+func TestLoad_AuthOverrideBypassesCache(t *testing.T) {
+	l := &Loader{
+		cache:    make(map[string]cacheEntry),
+		cacheTTL: 30 * time.Second,
+		oci:      &OCIPuller{},
+	}
+
+	// Pre-populate cache with an error
+	key := "oci:ghcr.io/org/svc"
+	l.cache[key] = cacheEntry{
+		result:    nil,
+		err:       fmt.Errorf("cached auth error"),
+		expiresAt: time.Now().Add(30 * time.Second),
+	}
+
+	// Without auth, should return cached error
+	_, err := l.Load(t.Context(), "ghcr.io/org/svc", "", nil)
+	if err == nil || err.Error() != "cached auth error" {
+		t.Fatalf("expected cached error, got: %v", err)
+	}
+
+	// With authOverride, should bypass cache and hit real OCI (which will fail differently)
+	auth := &authn.AuthConfig{Username: "user", Password: "pass"}
+	_, err = l.Load(t.Context(), "ghcr.io/org/svc", "", auth)
+	if err == nil {
+		t.Fatal("expected error from real OCI call")
+	}
+	if err.Error() == "cached auth error" {
+		t.Fatal("got cached error — authOverride should bypass cache")
 	}
 }

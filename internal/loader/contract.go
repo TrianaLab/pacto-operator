@@ -68,6 +68,12 @@ func New() *Loader {
 // Results are cached for 30s to avoid redundant parsing during rapid reconciliation.
 // authOverride provides per-call credentials from a K8s Secret (nil uses default keychains).
 func (l *Loader) Load(ctx context.Context, ociRef, inline string, authOverride *authn.AuthConfig) (*LoadResult, error) {
+	// Skip cache when per-CR credentials are provided — different CRs may
+	// have different pull secrets for the same OCI ref.
+	if authOverride != nil {
+		return l.loadUncached(ctx, ociRef, inline, authOverride)
+	}
+
 	key := l.cacheKey(ociRef, inline)
 
 	// Check cache
@@ -78,17 +84,7 @@ func (l *Loader) Load(ctx context.Context, ociRef, inline string, authOverride *
 	}
 	l.cacheMu.RUnlock()
 
-	// Load
-	var result *LoadResult
-	var err error
-	if inline != "" {
-		result, err = loadInline(inline)
-	} else if ociRef != "" {
-		ociRef = normalizeOCIRef(ociRef)
-		result, err = l.oci.Pull(ctx, ociRef, authOverride)
-	} else {
-		return nil, fmt.Errorf("no contract source specified: set either spec.contractRef.oci or spec.contractRef.inline")
-	}
+	result, err := l.loadUncached(ctx, ociRef, inline, nil)
 
 	// Cache the result (even errors, to avoid repeated failing loads)
 	l.cacheMu.Lock()
@@ -111,6 +107,16 @@ func (l *Loader) Load(ctx context.Context, ociRef, inline string, authOverride *
 	return result, err
 }
 
+func (l *Loader) loadUncached(ctx context.Context, ociRef, inline string, authOverride *authn.AuthConfig) (*LoadResult, error) {
+	if inline != "" {
+		return loadInline(inline)
+	}
+	if ociRef != "" {
+		return l.oci.Pull(ctx, normalizeOCIRef(ociRef), authOverride)
+	}
+	return nil, fmt.Errorf("no contract source specified: set either spec.contractRef.oci or spec.contractRef.inline")
+}
+
 // ListTags returns all semver tags for the given OCI repository.
 // Results are cached for 5 minutes to avoid redundant registry API calls
 // during cascade reconciles triggered by PactoRevision creation.
@@ -118,6 +124,13 @@ func (l *Loader) ListTags(ctx context.Context, ociRef string, authOverride *auth
 	if ociRef == "" {
 		return nil, nil
 	}
+
+	// Skip cache when per-CR credentials are provided — different CRs may
+	// have different pull secrets for the same OCI ref.
+	if authOverride != nil {
+		return l.oci.ListTags(ctx, normalizeOCIRef(ociRef), authOverride)
+	}
+
 	ref := normalizeOCIRef(ociRef)
 	key := tagCacheKey(ref)
 
@@ -128,7 +141,7 @@ func (l *Loader) ListTags(ctx context.Context, ociRef string, authOverride *auth
 	}
 	l.tagCacheMu.RUnlock()
 
-	tags, err := l.oci.ListTags(ctx, ref, authOverride)
+	tags, err := l.oci.ListTags(ctx, ref, nil)
 
 	l.tagCacheMu.Lock()
 	l.tagCache[key] = tagCacheEntry{

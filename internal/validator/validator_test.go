@@ -25,9 +25,6 @@ func TestValidate_CompliantWithService(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.ContractStatus != pactov1alpha1.ContractStatusCompliant {
-		t.Errorf("expected Compliant, got %s", result.ContractStatus)
-	}
 	if len(result.Checks) != 3 {
 		t.Fatalf("expected 3 checks, got %d", len(result.Checks))
 	}
@@ -52,9 +49,6 @@ func TestValidate_ServiceNotFound(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
-		t.Errorf("expected NonCompliant, got %s", result.ContractStatus)
-	}
 	// Should have ServiceExists=false, WorkloadExists=true, no ports check
 	if len(result.Checks) != 2 {
 		t.Fatalf("expected 2 checks, got %d", len(result.Checks))
@@ -75,8 +69,11 @@ func TestValidate_WorkloadNotFound(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
-		t.Errorf("expected NonCompliant, got %s", result.ContractStatus)
+	// WorkloadExists should fail
+	for _, ch := range result.Checks {
+		if ch.Name == pactov1alpha1.ConditionWorkloadExists && ch.Passed {
+			t.Error("expected WorkloadExists to fail")
+		}
 	}
 }
 
@@ -96,9 +93,6 @@ func TestValidate_PortsMismatch(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.ContractStatus != pactov1alpha1.ContractStatusWarning {
-		t.Errorf("expected Warning, got %s", result.ContractStatus)
-	}
 	if len(result.Ports.Missing) != 1 || result.Ports.Missing[0] != 9090 {
 		t.Errorf("expected missing port 9090, got %v", result.Ports.Missing)
 	}
@@ -122,9 +116,6 @@ func TestValidate_NoServiceTarget(t *testing.T) {
 	}
 	if result.Checks[0].Name != pactov1alpha1.ConditionWorkloadExists {
 		t.Errorf("expected WorkloadExists check, got %s", result.Checks[0].Name)
-	}
-	if result.ContractStatus != pactov1alpha1.ContractStatusCompliant {
-		t.Errorf("expected Compliant, got %s", result.ContractStatus)
 	}
 }
 
@@ -159,9 +150,6 @@ func TestValidate_BothResourcesMissing(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
-		t.Errorf("expected NonCompliant, got %s", result.ContractStatus)
-	}
 	// Both ServiceExists and WorkloadExists should fail
 	failCount := 0
 	for _, check := range result.Checks {
@@ -368,9 +356,6 @@ func TestValidate_AllRuntimeChecksWithHealth(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.ContractStatus != pactov1alpha1.ContractStatusCompliant {
-		t.Errorf("expected Compliant, got %s", result.ContractStatus)
-	}
 	// 3 base + 6 runtime = 9
 	if len(result.Checks) != 9 {
 		t.Errorf("expected 9 checks, got %d", len(result.Checks))

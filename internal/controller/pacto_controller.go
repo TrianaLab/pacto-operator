@@ -134,7 +134,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		pacto.Status.CurrentRevision = revisionName
 	}
 
-	if ociRef != "" {
+	if ociRef != "" && !strings.Contains(ociRef, "@") {
 		if syncErr := r.syncAllRevisions(ctx, pacto, ociRef, ociAuth); syncErr != nil {
 			log.Error(syncErr, "Failed to sync all revisions")
 		}

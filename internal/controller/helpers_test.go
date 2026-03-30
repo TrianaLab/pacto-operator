@@ -2320,7 +2320,7 @@ func TestReconcile_PinnedTag_SyncsHistoricalRevisions(t *testing.T) {
 	}
 }
 
-func TestReconcile_PinnedDigest_SyncsHistoricalRevisions(t *testing.T) {
+func TestReconcile_PinnedDigest_SkipsHistoricalSync(t *testing.T) {
 	pacto := &pactov1alpha1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec: pactov1alpha1.PactoSpec{
@@ -2333,22 +2333,19 @@ func TestReconcile_PinnedDigest_SyncsHistoricalRevisions(t *testing.T) {
 	r := newReconciler(pacto)
 	r.Loader = &mockLoader{
 		loadFn: func(_ context.Context, ociRef string, _ string) (*loader.LoadResult, error) {
-			version := "1.0.0"
-			if strings.HasSuffix(ociRef, ":2.0.0") {
-				version = "2.0.0"
-			}
 			return &loader.LoadResult{
 				Contract: &contract.Contract{
-					Service: contract.ServiceIdentity{Name: "my-svc", Version: version},
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: "1.0.0"},
 					Interfaces: []contract.Interface{
 						{Name: "http", Type: "http", Port: &port},
 					},
 				},
-				RawYAML:     []byte(fmt.Sprintf("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: %s\n", version)),
+				RawYAML:     []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 1.0.0\n"),
 				ResolvedRef: ociRef,
 			}, nil
 		},
 		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			t.Error("ListTags should not be called for digest refs")
 			return []string{"1.0.0", "2.0.0"}, nil
 		},
 	}
@@ -2371,11 +2368,11 @@ func TestReconcile_PinnedDigest_SyncsHistoricalRevisions(t *testing.T) {
 		t.Errorf("expected PinnedDigest, got %q", got.Status.ResolutionPolicy)
 	}
 
-	// Historical revisions should still be synced
+	// Digest refs skip syncAllRevisions — only the current revision should exist
 	revList := &pactov1alpha1.PactoRevisionList{}
 	_ = r.List(context.Background(), revList, client.InNamespace("default"))
-	if len(revList.Items) < 2 {
-		t.Errorf("expected at least 2 PactoRevisions (historical sync), got %d", len(revList.Items))
+	if len(revList.Items) != 1 {
+		t.Errorf("expected exactly 1 PactoRevision (no historical sync for digest refs), got %d", len(revList.Items))
 	}
 }
 
@@ -2680,7 +2677,6 @@ func TestApplyValidationResult_Full(t *testing.T) {
 	}
 
 	result := validator.Result{
-		ContractStatus: pactov1alpha1.ContractStatusCompliant,
 		Checks: []validator.Check{
 			{Name: pactov1alpha1.ConditionServiceExists, Passed: true, Reason: "Found", Message: "Service exists"},
 			{Name: pactov1alpha1.ConditionWorkloadExists, Passed: true, Reason: "Found", Message: "Workload exists"},
@@ -3465,6 +3461,86 @@ func TestReconcile_PullSecretRef_ValidSecret(t *testing.T) {
 	// With an inline contract and a valid secret, should succeed as Reference (no target)
 	if got.Status.ContractStatus != pactov1alpha1.ContractStatusReference {
 		t.Fatalf("expected Reference, got %s", got.Status.ContractStatus)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BUG-1: Digest refs must skip syncAllRevisions
+// ---------------------------------------------------------------------------
+
+func TestReconcile_DigestRef_SkipsSyncAllRevisions(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc@sha256:abcdef1234567890"},
+		},
+	}
+
+	listTagsCalled := false
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: "1.0.0"},
+				},
+				RawYAML:     []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 1.0.0\n"),
+				ResolvedRef: "ghcr.io/org/svc@sha256:abcdef1234567890",
+			}, nil
+		},
+		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			listTagsCalled = true
+			return []string{"1.0.0"}, nil
+		},
+	}
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if listTagsCalled {
+		t.Error("ListTags should NOT be called for digest refs — syncAllRevisions should be skipped")
+	}
+}
+
+func TestReconcile_TaggedRef_StillSyncsRevisions(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc:1.0.0"},
+		},
+	}
+
+	listTagsCalled := false
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: "1.0.0"},
+				},
+				RawYAML:     []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 1.0.0\n"),
+				ResolvedRef: "ghcr.io/org/svc:1.0.0",
+			}, nil
+		},
+		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			listTagsCalled = true
+			return []string{"1.0.0"}, nil
+		},
+	}
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !listTagsCalled {
+		t.Error("ListTags should be called for tagged refs — syncAllRevisions should still run")
 	}
 }
 
