@@ -9,6 +9,7 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -20,6 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func newScheme() *runtime.Scheme {
@@ -321,5 +323,233 @@ func assertClusterResourceNotFound(t *testing.T, c client.Client, ctx context.Co
 		t.Errorf("expected cluster resource %T %v to not exist", obj, key)
 	} else if !apierrors.IsNotFound(err) {
 		t.Errorf("expected NotFound error for %T %v, got: %v", obj, key, err)
+	}
+}
+
+// ---------- OCI Credentials ----------
+
+func TestReconcile_OCISecret_CreatesManagedSecret(t *testing.T) {
+	cfg := Config{
+		Enabled:   true,
+		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace: "test-ns",
+		OCISecret: "my-creds",
+	}
+	srcSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-creds", Namespace: "test-ns"},
+		Data:       map[string][]byte{"username": []byte("u"), "password": []byte("p")},
+	}
+	r := newReconciler(cfg, srcSecret)
+	ctx := context.Background()
+
+	_, err := r.Reconcile(ctx, ctrl.Request{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify managed secret was created
+	managed := &corev1.Secret{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: ManagedSecretName}, managed)
+	if err != nil {
+		t.Fatalf("expected managed secret to exist: %v", err)
+	}
+	if managed.Type != corev1.SecretTypeDockerConfigJson {
+		t.Errorf("expected dockerconfigjson type, got %s", managed.Type)
+	}
+	if len(managed.Data[corev1.DockerConfigJsonKey]) == 0 {
+		t.Error("expected non-empty dockerconfigjson data")
+	}
+}
+
+func TestReconcile_OCISecrets_CreatesManagedSecret(t *testing.T) {
+	cfg := Config{
+		Enabled:    true,
+		Image:      "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace:  "test-ns",
+		OCISecrets: []string{"creds-1", "creds-2"},
+	}
+	s1 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "creds-1", Namespace: "test-ns"},
+		Data:       map[string][]byte{"token": []byte("tok1")},
+	}
+	dockerCfg := `{"auths":{"ghcr.io":{"username":"u","password":"p"}}}`
+	s2 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "creds-2", Namespace: "test-ns"},
+		Type:       corev1.SecretTypeDockerConfigJson,
+		Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(dockerCfg)},
+	}
+	r := newReconciler(cfg, s1, s2)
+	ctx := context.Background()
+
+	_, err := r.Reconcile(ctx, ctrl.Request{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	managed := &corev1.Secret{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: ManagedSecretName}, managed)
+	if err != nil {
+		t.Fatalf("expected managed secret: %v", err)
+	}
+}
+
+func TestReconcile_NoOCISecrets_NoManagedSecret(t *testing.T) {
+	cfg := Config{
+		Enabled:   true,
+		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace: "test-ns",
+	}
+	r := newReconciler(cfg)
+	ctx := context.Background()
+
+	_, err := r.Reconcile(ctx, ctrl.Request{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	managed := &corev1.Secret{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: ManagedSecretName}, managed)
+	if !apierrors.IsNotFound(err) {
+		t.Errorf("expected managed secret to not exist, got err=%v", err)
+	}
+}
+
+func TestReconcile_NoOCISecrets_CleansUpManagedSecret(t *testing.T) {
+	cfg := Config{
+		Enabled:   true,
+		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace: "test-ns",
+	}
+	// Pre-create a managed secret from a previous run
+	oldManaged := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ManagedSecretName,
+			Namespace: "test-ns",
+			Labels:    Labels(),
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{corev1.DockerConfigJsonKey: []byte("{}")},
+	}
+	r := newReconciler(cfg, oldManaged)
+	ctx := context.Background()
+
+	_, err := r.Reconcile(ctx, ctrl.Request{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	managed := &corev1.Secret{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: ManagedSecretName}, managed)
+	if !apierrors.IsNotFound(err) {
+		t.Error("expected managed secret to be cleaned up when no OCI secrets configured")
+	}
+}
+
+func TestReconcile_OCISecret_MissingSourceSecret(t *testing.T) {
+	cfg := Config{
+		Enabled:   true,
+		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace: "test-ns",
+		OCISecret: "nonexistent",
+	}
+	r := newReconciler(cfg)
+	ctx := context.Background()
+
+	_, err := r.Reconcile(ctx, ctrl.Request{})
+	if err == nil {
+		t.Fatal("expected error when source secret is missing")
+	}
+}
+
+func TestReconcile_OCICredentials_CleanupGetError(t *testing.T) {
+	cfg := Config{
+		Enabled:   true,
+		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace: "test-ns",
+		// No OCISecret/OCISecrets → triggers cleanup path
+	}
+	scheme := newScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				// Inject error only for the managed secret Get in cleanup path
+				if key.Name == ManagedSecretName {
+					return fmt.Errorf("injected get error")
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+
+	r := &Reconciler{Client: fakeClient, Scheme: scheme, Config: cfg}
+	ctx := context.Background()
+
+	_, err := r.Reconcile(ctx, ctrl.Request{})
+	if err == nil {
+		t.Fatal("expected error from cleanup Get failure")
+	}
+	if !containsString(err.Error(), "injected get error") {
+		t.Errorf("expected injected error, got: %v", err)
+	}
+}
+
+func TestReconcile_OCICredentials_MergeError(t *testing.T) {
+	cfg := Config{
+		Enabled:   true,
+		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace: "test-ns",
+		OCISecret: "bad-secret",
+	}
+	// Create an opaque secret with no valid keys → MergeToDockerConfigJSON will fail
+	badSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "bad-secret", Namespace: "test-ns"},
+		Data:       map[string][]byte{"irrelevant": []byte("data")},
+	}
+	r := newReconciler(cfg, badSecret)
+	ctx := context.Background()
+
+	_, err := r.Reconcile(ctx, ctrl.Request{})
+	if err == nil {
+		t.Fatal("expected error when MergeToDockerConfigJSON fails")
+	}
+	if !containsString(err.Error(), "merging OCI credentials") {
+		t.Errorf("expected merge error, got: %v", err)
+	}
+}
+
+func TestReconcile_Cleanup_IncludesManagedSecret(t *testing.T) {
+	cfg := Config{
+		Enabled:   true,
+		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace: "test-ns",
+	}
+	managedSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ManagedSecretName,
+			Namespace: "test-ns",
+			Labels:    Labels(),
+		},
+	}
+	r := newReconciler(cfg,
+		BuildServiceAccount(cfg),
+		BuildClusterRole(),
+		BuildClusterRoleBinding(cfg),
+		BuildDeployment(cfg),
+		BuildService(cfg),
+		managedSecret,
+	)
+	ctx := context.Background()
+
+	// Disable and reconcile
+	r.Config.Enabled = false
+	_, err := r.Reconcile(ctx, ctrl.Request{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Managed secret should be cleaned up
+	s := &corev1.Secret{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: ManagedSecretName}, s)
+	if !apierrors.IsNotFound(err) {
+		t.Error("expected managed secret to be cleaned up on disable")
 	}
 }

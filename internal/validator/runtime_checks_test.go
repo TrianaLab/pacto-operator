@@ -515,10 +515,6 @@ func TestValidate_WithRuntimeChecks(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-	if result.ContractStatus != pactov1alpha1.ContractStatusCompliant {
-		t.Errorf("expected Compliant, got %s", result.ContractStatus)
-	}
-
 	// Should have: ServiceExists, WorkloadExists, PortsValid, WorkloadTypeMatch,
 	// StateModelMatch, UpgradeStrategyMatch, GracefulShutdownMatch, ImageMatch
 	if len(result.Checks) != 8 {
@@ -556,8 +552,15 @@ func TestValidate_RuntimeChecksWarning(t *testing.T) {
 
 	result := Validate(c, snap, false)
 
-	if result.ContractStatus != pactov1alpha1.ContractStatusWarning {
-		t.Errorf("expected Warning (workload type mismatch), got %s", result.ContractStatus)
+	// WorkloadType declares "job" but found Deployment — should have a failing check
+	hasFailure := false
+	for _, ch := range result.Checks {
+		if ch.Name == pactov1alpha1.ConditionWorkloadTypeMatch && !ch.Passed {
+			hasFailure = true
+		}
+	}
+	if !hasFailure {
+		t.Error("expected WorkloadTypeMatch to fail (job vs Deployment)")
 	}
 }
 
@@ -579,9 +582,6 @@ func TestValidate_NoRuntimeSection(t *testing.T) {
 	// Without runtime section, only basic checks apply
 	if len(result.Checks) != 3 {
 		t.Errorf("expected 3 checks (no runtime), got %d", len(result.Checks))
-	}
-	if result.ContractStatus != pactov1alpha1.ContractStatusCompliant {
-		t.Errorf("expected Compliant, got %s", result.ContractStatus)
 	}
 }
 

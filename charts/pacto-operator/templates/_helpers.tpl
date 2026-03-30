@@ -76,7 +76,9 @@ Controller arguments derived from values
 {{- end }}
 {{- if .Values.dashboard.enabled }}
 - --enable-dashboard
-{{- if .Values.dashboard.ociSecret }}
+{{- if .Values.dashboard.ociSecrets }}
+- --dashboard-oci-secrets={{ join "," .Values.dashboard.ociSecrets }}
+{{- else if .Values.dashboard.ociSecret }}
 - --dashboard-oci-secret={{ .Values.dashboard.ociSecret }}
 {{- end }}
 {{- with .Values.dashboard.resources }}

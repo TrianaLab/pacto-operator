@@ -78,15 +78,19 @@ spec:
                     type: string
                   oci:
                     description: |-
-                      OCI is the OCI registry reference for the contract bundle (without tag).
-                      The operator automatically resolves the latest semver tag from the registry.
-                      Example: ghcr.io/org/service-pacto
+                      OCI is the OCI registry reference for the contract bundle.
+                      Three forms are supported:
+                        - Unversioned (ghcr.io/org/service-pacto): tracks the latest semver tag.
+                        - Tagged (ghcr.io/org/service-pacto:1.2.3): pinned to that exact tag.
+                        - Digest (ghcr.io/org/service-pacto@sha256:...): immutable, exact reference.
                     type: string
                   pullSecretRef:
                     description: |-
                       PullSecretRef is the name of a Secret in the same namespace containing
-                      OCI registry credentials. Supported keys: "token" (bearer token) or
-                      "username"+"password" (basic auth).
+                      OCI registry credentials. Supported secret types:
+                        - Opaque with "token" key (bearer token)
+                        - Opaque with "username"+"password" keys (basic auth)
+                        - kubernetes.io/dockerconfigjson (standard Docker registry auth)
                     type: string
                 type: object
               target:
@@ -478,6 +482,18 @@ spec:
                       type: integer
                     type: array
                 type: object
+              resolutionPolicy:
+                description: |-
+                  ResolutionPolicy describes how the OCI reference was resolved.
+                  Latest: unversioned ref, operator tracks the highest semver tag.
+                  PinnedTag: ref includes an explicit tag, used as-is.
+                  PinnedDigest: ref includes a digest, used as-is (immutable).
+                  Empty for inline contracts.
+                enum:
+                - Latest
+                - PinnedTag
+                - PinnedDigest
+                type: string
               resources:
                 description: Resources describes the existence of target Kubernetes
                   resources.

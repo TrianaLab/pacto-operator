@@ -111,3 +111,28 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-oci-secret=my-secret"
 
+  - it: should include dashboard OCI secrets arg when list is set
+    set:
+      dashboard.enabled: true
+      dashboard.ociSecrets:
+        - ghcr-creds
+        - ecr-creds
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oci-secrets=ghcr-creds,ecr-creds"
+
+  - it: should prefer ociSecrets over ociSecret
+    set:
+      dashboard.enabled: true
+      dashboard.ociSecret: old-secret
+      dashboard.ociSecrets:
+        - new-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oci-secrets=new-secret"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oci-secret=old-secret"
+

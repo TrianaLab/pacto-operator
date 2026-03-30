@@ -30,12 +30,14 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
+	"github.com/trianalab/pacto-operator/internal/credentials"
 	"github.com/trianalab/pacto-operator/internal/loader"
 	"github.com/trianalab/pacto-operator/internal/metrics"
 	"github.com/trianalab/pacto-operator/internal/observer"
 	"github.com/trianalab/pacto-operator/internal/prober"
 	"github.com/trianalab/pacto-operator/internal/validator"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/oci"
 	"github.com/trianalab/pacto/pkg/validation"
 )
 
@@ -83,7 +85,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// 3. Resolve pull secret credentials (if specified)
 	var ociAuth *authn.AuthConfig
 	if secretName := pacto.Spec.ContractRef.PullSecretRef; secretName != "" {
-		auth, secretErr := r.resolveOCIAuth(ctx, pacto.Namespace, secretName)
+		auth, secretErr := r.resolveOCIAuth(ctx, pacto.Namespace, secretName, pacto.Spec.ContractRef.OCI)
 		if secretErr != nil {
 			return r.failReconciliation(ctx, pacto, fmt.Sprintf("failed to read pull secret %q: %v", secretName, secretErr),
 				&pactov1alpha1.ValidationResult{
@@ -94,18 +96,10 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		ociAuth = auth
 	}
 
-	// 4. Reject OCI refs with explicit tags (the operator auto-resolves semver)
+	// 4. Determine resolution policy and load the contract
 	ociRef := pacto.Spec.ContractRef.OCI
-	if pactov1alpha1.HasExplicitTag(ociRef) {
-		msg := fmt.Sprintf("contractRef.oci must not include a tag (got %q); the operator auto-resolves the latest semver version", ociRef)
-		return r.failReconciliation(ctx, pacto, msg,
-			&pactov1alpha1.ValidationResult{
-				Valid:  false,
-				Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.contractRef.oci", Message: msg}},
-			}, nil)
-	}
+	pacto.Status.ResolutionPolicy = resolutionPolicy(ociRef)
 
-	// 5. Load the contract
 	loadResult, err := r.Loader.Load(ctx, ociRef, pacto.Spec.ContractRef.Inline, ociAuth)
 	if err != nil {
 		return r.failReconciliation(ctx, pacto, err.Error(),
@@ -140,7 +134,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		pacto.Status.CurrentRevision = revisionName
 	}
 
-	if ociRef != "" {
+	if ociRef != "" && !strings.Contains(ociRef, "@") {
 		if syncErr := r.syncAllRevisions(ctx, pacto, ociRef, ociAuth); syncErr != nil {
 			log.Error(syncErr, "Failed to sync all revisions")
 		}
@@ -216,6 +210,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 // This prevents stale data from a previous reconciliation from surviving.
 func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.ContractStatus = ""
+	pacto.Status.ResolutionPolicy = ""
 	pacto.Status.Summary = nil
 	pacto.Status.ContractVersion = ""
 	pacto.Status.Contract = nil
@@ -706,6 +701,21 @@ func (r *PactoReconciler) requeueInterval(pacto *pactov1alpha1.Pacto) time.Durat
 	return 5 * time.Minute
 }
 
+// resolutionPolicy determines the OCI resolution policy from the ref shape.
+// Returns empty string for inline contracts (no OCI ref).
+func resolutionPolicy(ociRef string) string {
+	if ociRef == "" {
+		return ""
+	}
+	if oci.HasExplicitTag(ociRef) {
+		if strings.Contains(ociRef, "@") {
+			return pactov1alpha1.ResolutionPolicyPinnedDigest
+		}
+		return pactov1alpha1.ResolutionPolicyPinnedTag
+	}
+	return pactov1alpha1.ResolutionPolicyLatest
+}
+
 // --- Helpers ---
 
 func mapValidationResult(vr validation.ValidationResult) *pactov1alpha1.ValidationResult {
@@ -874,24 +884,17 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 }
 
 // resolveOCIAuth reads a Secret and extracts OCI registry credentials.
-// Supported keys: "token" (bearer/registry token) OR "username"+"password" (basic auth).
-func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretName string) (*authn.AuthConfig, error) {
+// Supports opaque secrets (token or username+password) and kubernetes.io/dockerconfigjson secrets.
+// For dockerconfigjson secrets, the registry is extracted from the OCI reference to select the
+// matching auth entry.
+func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretName, ociRef string) (*authn.AuthConfig, error) {
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret); err != nil {
 		return nil, fmt.Errorf("secret %q not found: %w", secretName, err)
 	}
 
-	if token := string(secret.Data["token"]); token != "" {
-		return &authn.AuthConfig{RegistryToken: token}, nil
-	}
-
-	user := string(secret.Data["username"])
-	pass := string(secret.Data["password"])
-	if user != "" && pass != "" {
-		return &authn.AuthConfig{Username: user, Password: pass}, nil
-	}
-
-	return nil, fmt.Errorf("secret %q must contain either 'token' or 'username'+'password' keys", secretName)
+	registry := credentials.RegistryFromRef(ociRef)
+	return credentials.FromSecret(secret, registry)
 }
 
 // SetupWithManager sets up the controller with the Manager.

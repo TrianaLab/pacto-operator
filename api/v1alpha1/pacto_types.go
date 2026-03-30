@@ -8,16 +8,16 @@ See LICENSE file in the project root for full license text.
 package v1alpha1
 
 import (
-	"strings"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ContractRef specifies where to find the Pacto contract.
 type ContractRef struct {
-	// OCI is the OCI registry reference for the contract bundle (without tag).
-	// The operator automatically resolves the latest semver tag from the registry.
-	// Example: ghcr.io/org/service-pacto
+	// OCI is the OCI registry reference for the contract bundle.
+	// Three forms are supported:
+	//   - Unversioned (ghcr.io/org/service-pacto): tracks the latest semver tag.
+	//   - Tagged (ghcr.io/org/service-pacto:1.2.3): pinned to that exact tag.
+	//   - Digest (ghcr.io/org/service-pacto@sha256:...): immutable, exact reference.
 	// +optional
 	OCI string `json:"oci,omitempty"`
 
@@ -26,8 +26,10 @@ type ContractRef struct {
 	Inline string `json:"inline,omitempty"`
 
 	// PullSecretRef is the name of a Secret in the same namespace containing
-	// OCI registry credentials. Supported keys: "token" (bearer token) or
-	// "username"+"password" (basic auth).
+	// OCI registry credentials. Supported secret types:
+	//   - Opaque with "token" key (bearer token)
+	//   - Opaque with "username"+"password" keys (basic auth)
+	//   - kubernetes.io/dockerconfigjson (standard Docker registry auth)
 	// +optional
 	PullSecretRef string `json:"pullSecretRef,omitempty"`
 }
@@ -384,6 +386,15 @@ type PactoStatus struct {
 	// +optional
 	ContractStatus string `json:"contractStatus,omitempty"`
 
+	// ResolutionPolicy describes how the OCI reference was resolved.
+	// Latest: unversioned ref, operator tracks the highest semver tag.
+	// PinnedTag: ref includes an explicit tag, used as-is.
+	// PinnedDigest: ref includes a digest, used as-is (immutable).
+	// Empty for inline contracts.
+	// +kubebuilder:validation:Enum=Latest;PinnedTag;PinnedDigest
+	// +optional
+	ResolutionPolicy string `json:"resolutionPolicy,omitempty"`
+
 	// Summary provides precomputed check counts.
 	// +optional
 	Summary *CheckSummary `json:"summary,omitempty"`
@@ -521,23 +532,6 @@ func (p *Pacto) ResolvedWorkload() (name, kind string) {
 		return p.Spec.Target.ServiceName, "Deployment"
 	}
 	return "", ""
-}
-
-// HasExplicitTag reports whether an OCI reference includes an explicit tag
-// (e.g. ":1.0.0" after the last "/" path segment). Digests ("@sha256:...")
-// and registry ports ("registry:5000/...") are not considered tags.
-func HasExplicitTag(ref string) bool {
-	if ref == "" {
-		return false
-	}
-	ref = strings.TrimPrefix(ref, "oci://")
-	// Digests are allowed
-	if strings.Contains(ref, "@") {
-		return false
-	}
-	lastSlash := strings.LastIndex(ref, "/")
-	lastColon := strings.LastIndex(ref, ":")
-	return lastColon > lastSlash
 }
 
 func init() {

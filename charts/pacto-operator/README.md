@@ -79,6 +79,35 @@ helm install pacto-operator oci://ghcr.io/trianalab/charts/pacto-operator \
 
 CRDs are installed automatically from the `crds/` directory on first install. Helm does not delete CRDs on `helm uninstall` (by design) to prevent accidental data loss.
 
+### OCI Contract References
+
+The `spec.contractRef.oci` field supports three forms that control version resolution:
+
+| Form | Example | Behavior |
+|------|---------|----------|
+| Unversioned | `ghcr.io/org/my-service` | Tracks the latest semver tag. Re-resolved on every reconciliation. |
+| Tagged | `ghcr.io/org/my-service:1.2.3` | Pinned to that exact tag. No automatic version updates. |
+| Digest | `ghcr.io/org/my-service@sha256:abc...` | Immutable. Always resolves to this exact content. |
+
+The resolved mode is reported in `status.resolutionPolicy` (`Latest`, `PinnedTag`, or `PinnedDigest`).
+
+```yaml
+# Track latest — operator auto-resolves highest semver tag
+spec:
+  contractRef:
+    oci: ghcr.io/my-org/contracts/my-service
+
+# Pin to v1.2.3 — stable, no drift
+spec:
+  contractRef:
+    oci: ghcr.io/my-org/contracts/my-service:1.2.3
+
+# Immutable digest — reproducible builds
+spec:
+  contractRef:
+    oci: ghcr.io/my-org/contracts/my-service@sha256:abcdef...
+```
+
 ## Dashboard
 
 The dashboard is **enabled by default**. The operator manages the dashboard Deployment, internal Service (`pacto-dashboard`, ClusterIP), ServiceAccount, and RBAC. The dashboard image version is automatically determined by the Pacto library version bundled into the controller — it is not user-configurable.
@@ -99,19 +128,30 @@ There are two independent credential paths for private registries:
 | Credential | Used by | Configured via |
 |------------|---------|----------------|
 | `spec.contractRef.pullSecretRef` | **Operator** (pulling contracts during reconciliation) | Per-Pacto CR field |
-| `dashboard.ociSecret` | **Dashboard** pod (browsing contracts in the UI) | Helm value |
+| `dashboard.ociSecret` / `dashboard.ociSecrets` | **Dashboard** pod (browsing contracts in the UI) | Helm value |
+
+All three secret formats are supported in both paths:
+
+- **Opaque** with `token` key — bearer/registry token (e.g. a GitHub PAT)
+- **Opaque** with `username` + `password` keys — basic auth
+- **`kubernetes.io/dockerconfigjson`** — standard Docker registry auth (supports multiple registries per secret)
 
 #### Operator credentials (per Pacto CR)
 
-Create a Secret in the **same namespace** as the Pacto CR with one of:
-
-- `token` — bearer/registry token (e.g. a GitHub PAT), **or**
-- `username` + `password` — basic auth
+Create a Secret in the **same namespace** as the Pacto CR:
 
 ```bash
+# Option 1: Opaque with username + password
 kubectl create secret generic ghcr-creds \
   --from-literal=username=x-access-token \
   --from-literal=password="$(gh auth token)" \
+  -n my-namespace
+
+# Option 2: dockerconfigjson (standard Docker auth)
+kubectl create secret docker-registry ghcr-creds \
+  --docker-server=ghcr.io \
+  --docker-username=x-access-token \
+  --docker-password="$(gh auth token)" \
   -n my-namespace
 ```
 
@@ -129,22 +169,43 @@ spec:
     pullSecretRef: ghcr-creds
 ```
 
-The operator watches the Secret — credential rotation triggers re-reconciliation automatically.
+The operator watches the Secret — credential rotation triggers re-reconciliation automatically. For `dockerconfigjson` secrets, the operator matches the registry hostname from the OCI reference against the auths in the secret.
 
 #### Dashboard credentials (Helm value)
 
-To give the dashboard pod access to private registries, create a Secret in the **operator namespace** and set `dashboard.ociSecret`:
+To give the dashboard pod access to private registries, create Secrets in the **operator namespace** and configure them via Helm values. The operator reads these source secrets, merges their credentials, and creates a managed `dockerconfigjson` secret that the dashboard pod mounts automatically.
 
-```bash
-kubectl create secret generic oci-creds \
-  --from-literal=username=myuser \
-  --from-literal=password=mypass \
-  -n pacto-operator-system
-```
+**Single secret** (backward compatible):
 
 ```yaml
 dashboard:
   ociSecret: oci-creds
+```
+
+**Multiple secrets** (recommended for multi-registry setups):
+
+```yaml
+dashboard:
+  ociSecrets:
+    - ghcr-creds
+    - ecr-creds
+```
+
+When `ociSecrets` is set, it takes precedence over `ociSecret`. Credentials from all secrets are merged; later secrets override earlier ones for the same registry.
+
+```bash
+# Create secrets for each registry
+kubectl create secret docker-registry ghcr-creds \
+  --docker-server=ghcr.io \
+  --docker-username=x-access-token \
+  --docker-password="$(gh auth token)" \
+  -n pacto-operator-system
+
+kubectl create secret docker-registry ecr-creds \
+  --docker-server=123456789.dkr.ecr.us-east-1.amazonaws.com \
+  --docker-username=AWS \
+  --docker-password="$(aws ecr get-login-password)" \
+  -n pacto-operator-system
 ```
 
 To disable the dashboard:
@@ -286,7 +347,8 @@ cosign verify \
 | dashboard.ingress.enabled | bool | `false` | Enable Ingress for the dashboard |
 | dashboard.ingress.hosts | list | `[{"host":"pacto-dashboard.local","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress hosts |
 | dashboard.ingress.tls | list | `[]` | Ingress TLS configuration |
-| dashboard.ociSecret | string | `""` | Optional Secret name for OCI registry credentials (keys: username, password, token) |
+| dashboard.ociSecret | string | `""` | Optional Secret name for OCI registry credentials (backward compatible). Supports Opaque secrets (keys: token or username+password) and kubernetes.io/dockerconfigjson secrets. Ignored when ociSecrets is set. |
+| dashboard.ociSecrets | list | `[]` | List of Secret names for OCI registry credentials. Supports Opaque and kubernetes.io/dockerconfigjson secrets. When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry. Takes precedence over ociSecret. |
 | dashboard.resources | object | `{"limits":{"memory":"512Mi"},"requests":{"cpu":"50m","memory":"128Mi"}}` | Resource requests and limits for the dashboard container. The previous default of 128Mi memory limit caused OOMKill when monitoring multiple OCI repositories and CRs simultaneously. |
 | dashboard.service.nodePort | string | `""` | Node port (only used when type is NodePort) |
 | dashboard.service.port | int | `3000` | Dashboard service port |

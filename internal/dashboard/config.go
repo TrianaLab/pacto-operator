@@ -32,14 +32,32 @@ type Config struct {
 	// Empty means cluster-wide (all namespaces). Inherited from the controller's --watch-namespace flag.
 	WatchNamespace string
 
-	// OCISecret is the optional name of a Kubernetes Secret (in the operator namespace)
-	// containing OCI registry credentials. If set, the dashboard will use these for
-	// registry access via PACTO_REGISTRY_* environment variables.
+	// OCISecret is the optional name of a single Kubernetes Secret (in the operator namespace)
+	// containing OCI registry credentials. Kept for backward compatibility.
+	// If OCISecrets is also set, OCISecret is ignored.
 	OCISecret string
+
+	// OCISecrets is an optional list of Secret names (in the operator namespace) containing
+	// OCI registry credentials. Supports Opaque and kubernetes.io/dockerconfigjson secrets.
+	// When set, the operator reads all referenced secrets, merges credentials, and creates
+	// a managed dockerconfigjson secret mounted into the dashboard pod.
+	OCISecrets []string
 
 	// Resources overrides the dashboard container's resource requirements.
 	// Zero-value fields fall back to built-in defaults.
 	Resources ResourcesConfig
+}
+
+// EffectiveOCISecrets returns the resolved list of OCI secret names.
+// OCISecrets takes precedence; if empty, falls back to OCISecret.
+func (c Config) EffectiveOCISecrets() []string {
+	if len(c.OCISecrets) > 0 {
+		return c.OCISecrets
+	}
+	if c.OCISecret != "" {
+		return []string{c.OCISecret}
+	}
+	return nil
 }
 
 // ResourcesConfig holds optional resource quantity overrides for the dashboard container.

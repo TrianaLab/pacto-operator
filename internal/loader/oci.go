@@ -79,6 +79,10 @@ func (p *OCIPuller) Pull(ctx context.Context, ref string, authOverride *authn.Au
 // ListTags returns all semver tags for an OCI repository, sorted descending.
 func (p *OCIPuller) ListTags(ctx context.Context, ref string, authOverride *authn.AuthConfig) ([]string, error) {
 	ref = strings.TrimPrefix(ref, "oci://")
+	// Strip digest
+	if idx := strings.Index(ref, "@"); idx >= 0 {
+		ref = ref[:idx]
+	}
 	// Strip any existing tag
 	if idx := strings.LastIndex(ref, ":"); idx > strings.LastIndex(ref, "/") {
 		ref = ref[:idx]

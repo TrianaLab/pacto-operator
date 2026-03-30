@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -71,6 +72,7 @@ func main() {
 	var enableDashboard bool
 	var watchNamespace string
 	var dashboardOCISecret string
+	var dashboardOCISecrets string
 	var dashboardCPURequest, dashboardCPULimit string
 	var dashboardMemoryRequest, dashboardMemoryLimit string
 	var showVersion bool
@@ -98,8 +100,12 @@ func main() {
 		"Restrict the controller to watch a single namespace. Empty (default) means cluster-wide. "+
 			"The dashboard inherits this scope automatically.")
 	flag.StringVar(&dashboardOCISecret, "dashboard-oci-secret", "",
-		"Optional: name of a Secret in the operator namespace containing OCI registry credentials "+
-			"(keys: username, password, token).")
+		"Optional: name of a Secret in the operator namespace containing OCI registry credentials. "+
+			"Supports Opaque (token or username+password) and kubernetes.io/dockerconfigjson secrets. "+
+			"Ignored when --dashboard-oci-secrets is set.")
+	flag.StringVar(&dashboardOCISecrets, "dashboard-oci-secrets", "",
+		"Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. "+
+			"Takes precedence over --dashboard-oci-secret.")
 	flag.StringVar(&dashboardCPURequest, "dashboard-cpu-request", "",
 		"CPU request for the dashboard container (e.g. 50m). Empty uses the built-in default.")
 	flag.StringVar(&dashboardCPULimit, "dashboard-cpu-limit", "",
@@ -257,12 +263,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	var parsedOCISecrets []string
+	if dashboardOCISecrets != "" {
+		for s := range strings.SplitSeq(dashboardOCISecrets, ",") {
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				parsedOCISecrets = append(parsedOCISecrets, trimmed)
+			}
+		}
+	}
+
 	dashCfg := dashboard.Config{
 		Enabled:        enableDashboard,
 		Image:          dashboardImage,
 		Namespace:      dashboardNamespace,
 		WatchNamespace: watchNamespace,
 		OCISecret:      dashboardOCISecret,
+		OCISecrets:     parsedOCISecrets,
 		Resources: dashboard.ResourcesConfig{
 			CPURequest:    dashboardCPURequest,
 			CPULimit:      dashboardCPULimit,
