@@ -13,7 +13,7 @@ Pacto Operator has been installed.
      name: my-service
    spec:
      contractRef:
-       oci: oci://your-registry/your-contract
+       oci: your-registry/your-contract
      target:
        serviceName: my-service
    EOF

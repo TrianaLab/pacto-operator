@@ -93,10 +93,15 @@ Error-severity failures set the contract status to `NonCompliant`. Warning-sever
 
 A `Pacto` resource binds a contract source to an optional runtime target:
 
-- **Contract source**: OCI registry reference (`spec.contractRef.oci`) or inline YAML (`spec.contractRef.inline`). OCI references resolve to the highest semver tag automatically.
+- **Contract source**: OCI registry reference (`spec.contractRef.oci`) or inline YAML (`spec.contractRef.inline`).
+  - **Unversioned** (`ghcr.io/org/name`): tracks the latest semver tag, re-resolved on every reconciliation.
+  - **Tagged** (`ghcr.io/org/name:1.2.3`): pinned to that exact tag, no automatic updates.
+  - **Digest** (`ghcr.io/org/name@sha256:abc...`): immutable, always resolves to that exact content.
+  - The resolved mode is reported in `status.resolutionPolicy` (`Latest`, `PinnedTag`, or `PinnedDigest`).
 - **Private registries**: set `spec.contractRef.pullSecretRef` to the name of a Kubernetes Secret (in the same namespace) containing OCI credentials. See [Private OCI Registries](#private-oci-registries).
 - **Target**: a Kubernetes Service (`spec.target.serviceName`) and workload (`spec.target.workloadRef`). If the workload ref is omitted, it defaults to a Deployment with the same name as the service.
 - **Reference mode**: when no target is specified, the Pacto is reference-only — the contract is resolved and stored, but no runtime validation runs. ContractStatus is `Reference`.
+- **Reconciliation frequency**: `spec.checkIntervalSeconds` controls how often the operator re-validates (default: 300, minimum: 30).
 
 ### PactoRevision
 
