@@ -78,9 +78,11 @@ spec:
                     type: string
                   oci:
                     description: |-
-                      OCI is the OCI registry reference for the contract bundle (without tag).
-                      The operator automatically resolves the latest semver tag from the registry.
-                      Example: ghcr.io/org/service-pacto
+                      OCI is the OCI registry reference for the contract bundle.
+                      Three forms are supported:
+                        - Unversioned (ghcr.io/org/service-pacto): tracks the latest semver tag.
+                        - Tagged (ghcr.io/org/service-pacto:1.2.3): pinned to that exact tag.
+                        - Digest (ghcr.io/org/service-pacto@sha256:...): immutable, exact reference.
                     type: string
                   pullSecretRef:
                     description: |-

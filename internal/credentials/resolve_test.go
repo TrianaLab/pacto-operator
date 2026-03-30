@@ -358,8 +358,8 @@ func TestMergeToDockerConfigJSON_OpaqueSecrets(t *testing.T) {
 
 func TestMergeToDockerConfigJSON_DockerConfigSecrets(t *testing.T) {
 	inner := dockerConfigJSON{Auths: map[string]dockerConfigEntry{
-		"ghcr.io":       {Username: "u1", Password: "p1"},
-		"docker.io":     {Username: "u2", Password: "p2"},
+		"ghcr.io":   {Username: "u1", Password: "p1"},
+		"docker.io": {Username: "u2", Password: "p2"},
 	}}
 	raw, _ := json.Marshal(inner)
 
