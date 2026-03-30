@@ -2288,7 +2288,7 @@ func TestReconcile_PinnedTag_SyncsHistoricalRevisions(t *testing.T) {
 						{Name: "http", Type: "http", Port: &port},
 					},
 				},
-				RawYAML:     []byte(fmt.Sprintf("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: %s\n", version)),
+				RawYAML:     fmt.Appendf(nil, "pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: %s\n", version),
 				ResolvedRef: ociRef,
 			}, nil
 		},

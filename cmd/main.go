@@ -265,7 +265,7 @@ func main() {
 
 	var parsedOCISecrets []string
 	if dashboardOCISecrets != "" {
-		for _, s := range strings.Split(dashboardOCISecrets, ",") {
+		for s := range strings.SplitSeq(dashboardOCISecrets, ",") {
 			if trimmed := strings.TrimSpace(s); trimmed != "" {
 				parsedOCISecrets = append(parsedOCISecrets, trimmed)
 			}

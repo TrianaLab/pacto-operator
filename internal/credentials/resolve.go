@@ -164,12 +164,10 @@ func RegistryFromRef(ref string) string {
 
 	// The registry is everything before the first slash, unless it looks like
 	// a simple name (no dots, no colons) — then it's a Docker Hub library image.
-	slash := strings.Index(ref, "/")
-	if slash < 0 {
+	registry, _, found := strings.Cut(ref, "/")
+	if !found {
 		return dockerHubHost
 	}
-
-	registry := ref[:slash]
 	if strings.ContainsAny(registry, ".:") {
 		return registry
 	}
