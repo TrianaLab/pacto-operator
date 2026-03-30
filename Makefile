@@ -172,6 +172,10 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 			$(KIND) create cluster --name $(KIND_CLUSTER_E2E) ;; \
 	esac
 
+.PHONY: test-integration
+test-integration: ## Run integration tests (in-process OCI registry, no cluster needed).
+	go test -tags=integration ./test/integration/ -v -timeout 120s
+
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
 	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER_E2E) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
