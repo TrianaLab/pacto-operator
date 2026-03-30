@@ -37,6 +37,7 @@ import (
 	"github.com/trianalab/pacto-operator/internal/prober"
 	"github.com/trianalab/pacto-operator/internal/validator"
 	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/pkg/oci"
 	"github.com/trianalab/pacto/pkg/validation"
 )
 
@@ -95,18 +96,10 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		ociAuth = auth
 	}
 
-	// 4. Reject OCI refs with explicit tags (the operator auto-resolves semver)
+	// 4. Determine resolution policy and load the contract
 	ociRef := pacto.Spec.ContractRef.OCI
-	if pactov1alpha1.HasExplicitTag(ociRef) {
-		msg := fmt.Sprintf("contractRef.oci must not include a tag (got %q); the operator auto-resolves the latest semver version", ociRef)
-		return r.failReconciliation(ctx, pacto, msg,
-			&pactov1alpha1.ValidationResult{
-				Valid:  false,
-				Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.contractRef.oci", Message: msg}},
-			}, nil)
-	}
+	pacto.Status.ResolutionPolicy = resolutionPolicy(ociRef)
 
-	// 5. Load the contract
 	loadResult, err := r.Loader.Load(ctx, ociRef, pacto.Spec.ContractRef.Inline, ociAuth)
 	if err != nil {
 		return r.failReconciliation(ctx, pacto, err.Error(),
@@ -217,6 +210,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 // This prevents stale data from a previous reconciliation from surviving.
 func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.ContractStatus = ""
+	pacto.Status.ResolutionPolicy = ""
 	pacto.Status.Summary = nil
 	pacto.Status.ContractVersion = ""
 	pacto.Status.Contract = nil
@@ -705,6 +699,21 @@ func (r *PactoReconciler) requeueInterval(pacto *pactov1alpha1.Pacto) time.Durat
 		return time.Duration(pacto.Spec.CheckIntervalSeconds) * time.Second
 	}
 	return 5 * time.Minute
+}
+
+// resolutionPolicy determines the OCI resolution policy from the ref shape.
+// Returns empty string for inline contracts (no OCI ref).
+func resolutionPolicy(ociRef string) string {
+	if ociRef == "" {
+		return ""
+	}
+	if oci.HasExplicitTag(ociRef) {
+		if strings.Contains(ociRef, "@") {
+			return pactov1alpha1.ResolutionPolicyPinnedDigest
+		}
+		return pactov1alpha1.ResolutionPolicyPinnedTag
+	}
+	return pactov1alpha1.ResolutionPolicyLatest
 }
 
 // --- Helpers ---

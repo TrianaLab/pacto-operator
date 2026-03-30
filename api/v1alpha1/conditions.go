@@ -97,3 +97,16 @@ const (
 	ContractStatusReference    = "Reference"
 	ContractStatusUnknown      = "Unknown"
 )
+
+// ResolutionPolicy values describe how the OCI reference is resolved.
+const (
+	// ResolutionPolicyLatest means the operator resolves the highest semver tag
+	// from the registry on every reconciliation (unversioned OCI ref).
+	ResolutionPolicyLatest = "Latest"
+	// ResolutionPolicyPinnedTag means the OCI ref includes an explicit tag
+	// and the operator uses it as-is without re-resolving.
+	ResolutionPolicyPinnedTag = "PinnedTag"
+	// ResolutionPolicyPinnedDigest means the OCI ref includes a digest
+	// and the operator uses it as-is (immutable).
+	ResolutionPolicyPinnedDigest = "PinnedDigest"
+)

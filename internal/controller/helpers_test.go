@@ -2061,7 +2061,31 @@ func TestReconcile_GetError(t *testing.T) {
 	}
 }
 
-func TestReconcile_HasExplicitTag(t *testing.T) {
+func TestResolutionPolicy(t *testing.T) {
+	tests := []struct {
+		ref    string
+		expect string
+	}{
+		{"", ""},
+		{"ghcr.io/org/svc", pactov1alpha1.ResolutionPolicyLatest},
+		{"ghcr.io/org/svc:1.2.3", pactov1alpha1.ResolutionPolicyPinnedTag},
+		{"ghcr.io/org/svc:v1.0.0", pactov1alpha1.ResolutionPolicyPinnedTag},
+		{"ghcr.io/org/svc@sha256:abcdef1234567890", pactov1alpha1.ResolutionPolicyPinnedDigest},
+		{"oci://ghcr.io/org/svc", pactov1alpha1.ResolutionPolicyLatest},
+		{"oci://ghcr.io/org/svc:1.0.0", pactov1alpha1.ResolutionPolicyPinnedTag},
+		{"oci://ghcr.io/org/svc@sha256:abc", pactov1alpha1.ResolutionPolicyPinnedDigest},
+		{"registry:5000/org/svc", pactov1alpha1.ResolutionPolicyLatest},
+		{"registry:5000/org/svc:1.0.0", pactov1alpha1.ResolutionPolicyPinnedTag},
+	}
+	for _, tt := range tests {
+		got := resolutionPolicy(tt.ref)
+		if got != tt.expect {
+			t.Errorf("resolutionPolicy(%q) = %q, want %q", tt.ref, got, tt.expect)
+		}
+	}
+}
+
+func TestReconcile_TaggedOCIRef_Accepted(t *testing.T) {
 	pacto := &pactov1alpha1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec: pactov1alpha1.PactoSpec{
@@ -2070,7 +2094,22 @@ func TestReconcile_HasExplicitTag(t *testing.T) {
 		},
 	}
 
+	port := 8080
 	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, ociRef string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: "1.0.0"},
+					Interfaces: []contract.Interface{
+						{Name: "http", Type: "http", Port: &port},
+					},
+				},
+				RawYAML:     []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 1.0.0\n"),
+				ResolvedRef: ociRef,
+			}, nil
+		},
+	}
 
 	result, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
@@ -2080,6 +2119,263 @@ func TestReconcile_HasExplicitTag(t *testing.T) {
 	}
 	if result.RequeueAfter == 0 {
 		t.Fatal("expected requeue")
+	}
+
+	// Verify tagged ref was accepted and status is set correctly
+	got := &pactov1alpha1.Pacto{}
+	_ = r.Get(context.Background(), client.ObjectKey{Name: "test", Namespace: "default"}, got)
+	if got.Status.ResolutionPolicy != pactov1alpha1.ResolutionPolicyPinnedTag {
+		t.Errorf("expected ResolutionPolicy=%q, got %q", pactov1alpha1.ResolutionPolicyPinnedTag, got.Status.ResolutionPolicy)
+	}
+	if got.Status.ContractStatus == pactov1alpha1.ContractStatusNonCompliant {
+		t.Error("tagged OCI ref should not be rejected as NonCompliant")
+	}
+}
+
+func TestReconcile_DigestOCIRef_Accepted(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc@sha256:abcdef1234567890"},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "my-svc"},
+		},
+	}
+
+	port := 8080
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, ociRef string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: "1.0.0"},
+					Interfaces: []contract.Interface{
+						{Name: "http", Type: "http", Port: &port},
+					},
+				},
+				RawYAML:     []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 1.0.0\n"),
+				ResolvedRef: ociRef,
+			}, nil
+		},
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Fatal("expected requeue")
+	}
+
+	got := &pactov1alpha1.Pacto{}
+	_ = r.Get(context.Background(), client.ObjectKey{Name: "test", Namespace: "default"}, got)
+	if got.Status.ResolutionPolicy != pactov1alpha1.ResolutionPolicyPinnedDigest {
+		t.Errorf("expected ResolutionPolicy=%q, got %q", pactov1alpha1.ResolutionPolicyPinnedDigest, got.Status.ResolutionPolicy)
+	}
+}
+
+func TestReconcile_UnversionedOCIRef_ResolvesLatest(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc"},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "my-svc"},
+		},
+	}
+
+	port := 8080
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: "2.0.0"},
+					Interfaces: []contract.Interface{
+						{Name: "http", Type: "http", Port: &port},
+					},
+				},
+				RawYAML:     []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 2.0.0\n"),
+				ResolvedRef: "ghcr.io/org/svc:2.0.0",
+			}, nil
+		},
+		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"1.0.0", "2.0.0"}, nil
+		},
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Fatal("expected requeue")
+	}
+
+	got := &pactov1alpha1.Pacto{}
+	_ = r.Get(context.Background(), client.ObjectKey{Name: "test", Namespace: "default"}, got)
+	if got.Status.ResolutionPolicy != pactov1alpha1.ResolutionPolicyLatest {
+		t.Errorf("expected ResolutionPolicy=%q, got %q", pactov1alpha1.ResolutionPolicyLatest, got.Status.ResolutionPolicy)
+	}
+	if got.Status.Contract == nil || got.Status.Contract.ResolvedRef != "ghcr.io/org/svc:2.0.0" {
+		t.Errorf("expected resolvedRef ghcr.io/org/svc:2.0.0, got %v", got.Status.Contract)
+	}
+}
+
+func TestReconcile_InlineContract_NoResolutionPolicy(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: "test"},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "my-svc"},
+		},
+	}
+
+	port := 8080
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: "1.0.0"},
+					Interfaces: []contract.Interface{
+						{Name: "http", Type: "http", Port: &port},
+					},
+				},
+				RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 1.0.0\n"),
+			}, nil
+		},
+	}
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := &pactov1alpha1.Pacto{}
+	_ = r.Get(context.Background(), client.ObjectKey{Name: "test", Namespace: "default"}, got)
+	if got.Status.ResolutionPolicy != "" {
+		t.Errorf("expected empty ResolutionPolicy for inline, got %q", got.Status.ResolutionPolicy)
+	}
+}
+
+func TestReconcile_PinnedTag_SyncsHistoricalRevisions(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc:1.0.0"},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "my-svc"},
+		},
+	}
+
+	port := 8080
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, ociRef string, _ string) (*loader.LoadResult, error) {
+			// Derive version from the ref tag
+			version := "1.0.0"
+			if strings.HasSuffix(ociRef, ":2.0.0") {
+				version = "2.0.0"
+			}
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: version},
+					Interfaces: []contract.Interface{
+						{Name: "http", Type: "http", Port: &port},
+					},
+				},
+				RawYAML:     []byte(fmt.Sprintf("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: %s\n", version)),
+				ResolvedRef: ociRef,
+			}, nil
+		},
+		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"1.0.0", "2.0.0"}, nil
+		},
+	}
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := &pactov1alpha1.Pacto{}
+	_ = r.Get(context.Background(), client.ObjectKey{Name: "test", Namespace: "default"}, got)
+
+	// currentRevision must point to the pinned version (1.0.0), not 2.0.0
+	if !strings.Contains(got.Status.CurrentRevision, "1-0-0") {
+		t.Errorf("expected currentRevision to contain pinned version 1-0-0, got %q", got.Status.CurrentRevision)
+	}
+
+	// Historical revisions should exist for both versions
+	revList := &pactov1alpha1.PactoRevisionList{}
+	_ = r.List(context.Background(), revList, client.InNamespace("default"))
+	if len(revList.Items) < 2 {
+		t.Errorf("expected at least 2 PactoRevisions (historical sync), got %d", len(revList.Items))
+	}
+}
+
+func TestReconcile_PinnedDigest_SyncsHistoricalRevisions(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc@sha256:abcdef1234567890"},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "my-svc"},
+		},
+	}
+
+	port := 8080
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, ociRef string, _ string) (*loader.LoadResult, error) {
+			version := "1.0.0"
+			if strings.HasSuffix(ociRef, ":2.0.0") {
+				version = "2.0.0"
+			}
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: version},
+					Interfaces: []contract.Interface{
+						{Name: "http", Type: "http", Port: &port},
+					},
+				},
+				RawYAML:     []byte(fmt.Sprintf("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: %s\n", version)),
+				ResolvedRef: ociRef,
+			}, nil
+		},
+		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"1.0.0", "2.0.0"}, nil
+		},
+	}
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := &pactov1alpha1.Pacto{}
+	_ = r.Get(context.Background(), client.ObjectKey{Name: "test", Namespace: "default"}, got)
+
+	// currentRevision must point to the digest-resolved version (1.0.0)
+	if !strings.Contains(got.Status.CurrentRevision, "1-0-0") {
+		t.Errorf("expected currentRevision for digest to contain 1-0-0, got %q", got.Status.CurrentRevision)
+	}
+	if got.Status.ResolutionPolicy != pactov1alpha1.ResolutionPolicyPinnedDigest {
+		t.Errorf("expected PinnedDigest, got %q", got.Status.ResolutionPolicy)
+	}
+
+	// Historical revisions should still be synced
+	revList := &pactov1alpha1.PactoRevisionList{}
+	_ = r.List(context.Background(), revList, client.InNamespace("default"))
+	if len(revList.Items) < 2 {
+		t.Errorf("expected at least 2 PactoRevisions (historical sync), got %d", len(revList.Items))
 	}
 }
 

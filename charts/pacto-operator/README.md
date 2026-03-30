@@ -79,6 +79,35 @@ helm install pacto-operator oci://ghcr.io/trianalab/charts/pacto-operator \
 
 CRDs are installed automatically from the `crds/` directory on first install. Helm does not delete CRDs on `helm uninstall` (by design) to prevent accidental data loss.
 
+### OCI Contract References
+
+The `spec.contractRef.oci` field supports three forms that control version resolution:
+
+| Form | Example | Behavior |
+|------|---------|----------|
+| Unversioned | `ghcr.io/org/my-service` | Tracks the latest semver tag. Re-resolved on every reconciliation. |
+| Tagged | `ghcr.io/org/my-service:1.2.3` | Pinned to that exact tag. No automatic version updates. |
+| Digest | `ghcr.io/org/my-service@sha256:abc...` | Immutable. Always resolves to this exact content. |
+
+The resolved mode is reported in `status.resolutionPolicy` (`Latest`, `PinnedTag`, or `PinnedDigest`).
+
+```yaml
+# Track latest — operator auto-resolves highest semver tag
+spec:
+  contractRef:
+    oci: ghcr.io/my-org/contracts/my-service
+
+# Pin to v1.2.3 — stable, no drift
+spec:
+  contractRef:
+    oci: ghcr.io/my-org/contracts/my-service:1.2.3
+
+# Immutable digest — reproducible builds
+spec:
+  contractRef:
+    oci: ghcr.io/my-org/contracts/my-service@sha256:abcdef...
+```
+
 ## Dashboard
 
 The dashboard is **enabled by default**. The operator manages the dashboard Deployment, internal Service (`pacto-dashboard`, ClusterIP), ServiceAccount, and RBAC. The dashboard image version is automatically determined by the Pacto library version bundled into the controller — it is not user-configurable.
