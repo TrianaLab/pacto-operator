@@ -101,7 +101,7 @@ func main() {
 			"The dashboard inherits this scope automatically.")
 	flag.StringVar(&dashboardOCISecret, "dashboard-oci-secret", "",
 		"Optional: name of a Secret in the operator namespace containing OCI registry credentials. "+
-			"Supports Opaque (token or username+password) and kubernetes.io/dockerconfigjson secrets. "+
+			"Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets. "+
 			"Ignored when --dashboard-oci-secrets is set.")
 	flag.StringVar(&dashboardOCISecrets, "dashboard-oci-secrets", "",
 		"Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. "+

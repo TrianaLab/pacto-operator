@@ -10,6 +10,9 @@ See LICENSE file in the project root for full license text.
 //   - Opaque with "token" key (bearer/registry token)
 //   - Opaque with "username" + "password" keys (basic auth)
 //   - kubernetes.io/dockerconfigjson (standard Docker registry auth)
+//
+// For dashboard credential merging (MergeToDockerConfigJSON), Opaque secrets must
+// also include a "registry" key specifying the target hostname (e.g. "ghcr.io").
 package credentials
 
 import (
@@ -178,7 +181,7 @@ func RegistryFromRef(ref string) string {
 // dockerconfigjson-formatted byte slice. This is used by the dashboard reconciler
 // to create a managed secret from multiple source secrets.
 //
-// For opaque secrets, credentials are keyed under a wildcard entry ("*").
+// For opaque secrets, the "registry" key determines the hostname used in .auths.
 // For dockerconfigjson secrets, all auth entries are merged.
 // Later secrets override earlier ones for the same registry host.
 func MergeToDockerConfigJSON(secrets []*corev1.Secret) ([]byte, error) {
@@ -198,12 +201,16 @@ func MergeToDockerConfigJSON(secrets []*corev1.Secret) ([]byte, error) {
 				merged.Auths[normalizeRegistryHost(registry)] = entry
 			}
 		} else {
+			registry := strings.TrimSpace(string(secret.Data["registry"]))
+			if registry == "" {
+				return nil, fmt.Errorf("secret %q: opaque secrets must contain a 'registry' key "+
+					"specifying the registry hostname (e.g. ghcr.io)", secret.Name)
+			}
 			auth, err := fromOpaque(secret)
 			if err != nil {
 				return nil, fmt.Errorf("secret %q: %w", secret.Name, err)
 			}
-			// Opaque secrets apply to all registries — store under wildcard
-			merged.Auths["*"] = dockerConfigEntry{
+			merged.Auths[normalizeRegistryHost(registry)] = dockerConfigEntry{
 				Username: auth.Username,
 				Password: auth.Password,
 				Auth:     encodeAuth(auth),
