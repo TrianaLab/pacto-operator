@@ -336,7 +336,7 @@ func TestRegistryFromRef(t *testing.T) {
 func TestMergeToDockerConfigJSON_OpaqueSecrets(t *testing.T) {
 	s1 := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1"},
-		Data:       map[string][]byte{"username": []byte("u1"), "password": []byte("p1")},
+		Data:       map[string][]byte{"username": []byte("u1"), "password": []byte("p1"), "registry": []byte("ghcr.io")},
 	}
 	result, err := MergeToDockerConfigJSON([]*corev1.Secret{s1})
 	if err != nil {
@@ -347,12 +347,43 @@ func TestMergeToDockerConfigJSON_OpaqueSecrets(t *testing.T) {
 	if err := json.Unmarshal(result, &cfg); err != nil {
 		t.Fatalf("invalid JSON output: %v", err)
 	}
-	entry, ok := cfg.Auths["*"]
+	entry, ok := cfg.Auths["ghcr.io"]
 	if !ok {
-		t.Fatal("expected wildcard entry for opaque secret")
+		t.Fatal("expected ghcr.io entry for opaque secret with registry key")
 	}
 	if entry.Username != "u1" || entry.Password != "p1" {
 		t.Fatalf("expected u1/p1, got %s/%s", entry.Username, entry.Password)
+	}
+}
+
+func TestMergeToDockerConfigJSON_OpaqueWithoutRegistryKey(t *testing.T) {
+	s := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "no-registry"},
+		Data:       map[string][]byte{"username": []byte("u"), "password": []byte("p")},
+	}
+	_, err := MergeToDockerConfigJSON([]*corev1.Secret{s})
+	if err == nil {
+		t.Fatal("expected error for opaque secret without registry key")
+	}
+	if !strings.Contains(err.Error(), "registry") {
+		t.Fatalf("expected error mentioning 'registry', got: %v", err)
+	}
+}
+
+func TestMergeToDockerConfigJSON_OpaqueRegistryNormalized(t *testing.T) {
+	s := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "s"},
+		Data:       map[string][]byte{"username": []byte("u"), "password": []byte("p"), "registry": []byte("https://ghcr.io/v2/")},
+	}
+	result, err := MergeToDockerConfigJSON([]*corev1.Secret{s})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cfg dockerConfigJSON
+	_ = json.Unmarshal(result, &cfg)
+	if _, ok := cfg.Auths["ghcr.io"]; !ok {
+		t.Fatal("expected normalized ghcr.io entry")
 	}
 }
 
@@ -395,7 +426,7 @@ func TestMergeToDockerConfigJSON_Mixed(t *testing.T) {
 	secrets := []*corev1.Secret{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "opaque"},
-			Data:       map[string][]byte{"token": []byte("tok123")},
+			Data:       map[string][]byte{"token": []byte("tok123"), "registry": []byte("registry.example.com")},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "docker"},
@@ -415,8 +446,8 @@ func TestMergeToDockerConfigJSON_Mixed(t *testing.T) {
 	if len(cfg.Auths) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(cfg.Auths))
 	}
-	if _, ok := cfg.Auths["*"]; !ok {
-		t.Error("expected wildcard entry")
+	if _, ok := cfg.Auths["registry.example.com"]; !ok {
+		t.Error("expected registry.example.com entry")
 	}
 	if _, ok := cfg.Auths["ghcr.io"]; !ok {
 		t.Error("expected ghcr.io entry")
@@ -463,7 +494,7 @@ func TestMergeToDockerConfigJSON_LaterOverridesEarlier(t *testing.T) {
 func TestMergeToDockerConfigJSON_InvalidOpaque(t *testing.T) {
 	s := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "bad"},
-		Data:       map[string][]byte{"nope": []byte("x")},
+		Data:       map[string][]byte{"registry": []byte("ghcr.io"), "nope": []byte("x")},
 	}
 	_, err := MergeToDockerConfigJSON([]*corev1.Secret{s})
 	if err == nil {
@@ -498,7 +529,7 @@ func TestMergeToDockerConfigJSON_MissingDockerConfigKey(t *testing.T) {
 func TestMergeToDockerConfigJSON_OpaqueToken(t *testing.T) {
 	s := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "tok"},
-		Data:       map[string][]byte{"token": []byte("mytoken")},
+		Data:       map[string][]byte{"token": []byte("mytoken"), "registry": []byte("ghcr.io")},
 	}
 	result, err := MergeToDockerConfigJSON([]*corev1.Secret{s})
 	if err != nil {
@@ -508,7 +539,7 @@ func TestMergeToDockerConfigJSON_OpaqueToken(t *testing.T) {
 	var cfg dockerConfigJSON
 	_ = json.Unmarshal(result, &cfg)
 
-	entry := cfg.Auths["*"]
+	entry := cfg.Auths["ghcr.io"]
 	// Token-based opaque secrets encode as _token:TOKEN
 	decoded, _ := base64.StdEncoding.DecodeString(entry.Auth)
 	if string(decoded) != "_token:mytoken" {

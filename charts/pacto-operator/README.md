@@ -132,9 +132,11 @@ There are two independent credential paths for private registries:
 
 All three secret formats are supported in both paths:
 
-- **Opaque** with `token` key — bearer/registry token (e.g. a GitHub PAT)
-- **Opaque** with `username` + `password` keys — basic auth
+- **Opaque** with `registry` + `token` keys — bearer/registry token (e.g. a GitHub PAT)
+- **Opaque** with `registry` + `username` + `password` keys — basic auth
 - **`kubernetes.io/dockerconfigjson`** — standard Docker registry auth (supports multiple registries per secret)
+
+> **Note:** For dashboard credentials, Opaque secrets **must** include a `registry` key specifying the target hostname (e.g. `ghcr.io`). This is required because go-containerregistry performs exact hostname matching. For operator credentials (per-Pacto CR), the `registry` key is not needed — the operator infers it from the OCI reference.
 
 #### Operator credentials (per Pacto CR)
 
@@ -194,17 +196,18 @@ dashboard:
 When `ociSecrets` is set, it takes precedence over `ociSecret`. Credentials from all secrets are merged; later secrets override earlier ones for the same registry.
 
 ```bash
-# Create secrets for each registry
+# Option 1: dockerconfigjson (recommended for multi-registry)
 kubectl create secret docker-registry ghcr-creds \
   --docker-server=ghcr.io \
   --docker-username=x-access-token \
   --docker-password="$(gh auth token)" \
   -n pacto-operator-system
 
-kubectl create secret docker-registry ecr-creds \
-  --docker-server=123456789.dkr.ecr.us-east-1.amazonaws.com \
-  --docker-username=AWS \
-  --docker-password="$(aws ecr get-login-password)" \
+# Option 2: Opaque with registry key
+kubectl create secret generic ghcr-creds \
+  --from-literal=registry=ghcr.io \
+  --from-literal=username=x-access-token \
+  --from-literal=password="$(gh auth token)" \
   -n pacto-operator-system
 ```
 
@@ -347,8 +350,8 @@ cosign verify \
 | dashboard.ingress.enabled | bool | `false` | Enable Ingress for the dashboard |
 | dashboard.ingress.hosts | list | `[{"host":"pacto-dashboard.local","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress hosts |
 | dashboard.ingress.tls | list | `[]` | Ingress TLS configuration |
-| dashboard.ociSecret | string | `""` | Optional Secret name for OCI registry credentials (backward compatible). Supports Opaque secrets (keys: token or username+password) and kubernetes.io/dockerconfigjson secrets. Ignored when ociSecrets is set. |
-| dashboard.ociSecrets | list | `[]` | List of Secret names for OCI registry credentials. Supports Opaque and kubernetes.io/dockerconfigjson secrets. When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry. Takes precedence over ociSecret. |
+| dashboard.ociSecret | string | `""` | Optional Secret name for OCI registry credentials (backward compatible). Supports Opaque secrets (keys: registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets. Ignored when ociSecrets is set. |
+| dashboard.ociSecrets | list | `[]` | List of Secret names for OCI registry credentials. Supports Opaque (with registry key) and kubernetes.io/dockerconfigjson secrets. When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry. Takes precedence over ociSecret. |
 | dashboard.resources | object | `{"limits":{"memory":"512Mi"},"requests":{"cpu":"50m","memory":"128Mi"}}` | Resource requests and limits for the dashboard container. The previous default of 128Mi memory limit caused OOMKill when monitoring multiple OCI repositories and CRs simultaneously. |
 | dashboard.service.nodePort | string | `""` | Node port (only used when type is NodePort) |
 | dashboard.service.port | int | `3000` | Dashboard service port |

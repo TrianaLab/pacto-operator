@@ -98,11 +98,11 @@ dashboard:
   # bundled Pacto library version. It is not user-configurable.
   enabled: true
   # -- Optional Secret name for OCI registry credentials (backward compatible).
-  # Supports Opaque secrets (keys: token or username+password) and kubernetes.io/dockerconfigjson secrets.
-  # Ignored when ociSecrets is set.
+  # Supports Opaque secrets (keys: registry + token, or registry + username + password)
+  # and kubernetes.io/dockerconfigjson secrets. Ignored when ociSecrets is set.
   ociSecret: ""
   # -- List of Secret names for OCI registry credentials.
-  # Supports Opaque and kubernetes.io/dockerconfigjson secrets.
+  # Supports Opaque (with registry key) and kubernetes.io/dockerconfigjson secrets.
   # When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry.
   # Takes precedence over ociSecret.
   ociSecrets: []

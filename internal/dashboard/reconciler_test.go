@@ -337,7 +337,7 @@ func TestReconcile_OCISecret_CreatesManagedSecret(t *testing.T) {
 	}
 	srcSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-creds", Namespace: "test-ns"},
-		Data:       map[string][]byte{"username": []byte("u"), "password": []byte("p")},
+		Data:       map[string][]byte{"username": []byte("u"), "password": []byte("p"), "registry": []byte("ghcr.io")},
 	}
 	r := newReconciler(cfg, srcSecret)
 	ctx := context.Background()
@@ -370,7 +370,7 @@ func TestReconcile_OCISecrets_CreatesManagedSecret(t *testing.T) {
 	}
 	s1 := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "creds-1", Namespace: "test-ns"},
-		Data:       map[string][]byte{"token": []byte("tok1")},
+		Data:       map[string][]byte{"token": []byte("tok1"), "registry": []byte("registry.example.com")},
 	}
 	dockerCfg := `{"auths":{"ghcr.io":{"username":"u","password":"p"}}}`
 	s2 := &corev1.Secret{
