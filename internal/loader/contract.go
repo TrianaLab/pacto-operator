@@ -36,20 +36,31 @@ type cacheEntry struct {
 	expiresAt time.Time
 }
 
+type tagCacheEntry struct {
+	tags      []string
+	err       error
+	expiresAt time.Time
+}
+
 // Loader resolves and parses Pacto contracts from OCI registries or inline YAML.
 type Loader struct {
-	oci      *OCIPuller
-	cache    map[string]cacheEntry
-	cacheMu  sync.RWMutex
-	cacheTTL time.Duration
+	oci         *OCIPuller
+	cache       map[string]cacheEntry
+	cacheMu     sync.RWMutex
+	cacheTTL    time.Duration
+	tagCache    map[string]tagCacheEntry
+	tagCacheMu  sync.RWMutex
+	tagCacheTTL time.Duration
 }
 
 // New creates a Loader with OCI pulling configured.
 func New() *Loader {
 	return &Loader{
-		oci:      NewOCIPuller(),
-		cache:    make(map[string]cacheEntry),
-		cacheTTL: 30 * time.Second,
+		oci:         NewOCIPuller(),
+		cache:       make(map[string]cacheEntry),
+		cacheTTL:    30 * time.Second,
+		tagCache:    make(map[string]tagCacheEntry),
+		tagCacheTTL: 5 * time.Minute,
 	}
 }
 
@@ -101,11 +112,55 @@ func (l *Loader) Load(ctx context.Context, ociRef, inline string, authOverride *
 }
 
 // ListTags returns all semver tags for the given OCI repository.
+// Results are cached for 5 minutes to avoid redundant registry API calls
+// during cascade reconciles triggered by PactoRevision creation.
 func (l *Loader) ListTags(ctx context.Context, ociRef string, authOverride *authn.AuthConfig) ([]string, error) {
 	if ociRef == "" {
 		return nil, nil
 	}
-	return l.oci.ListTags(ctx, normalizeOCIRef(ociRef), authOverride)
+	ref := normalizeOCIRef(ociRef)
+	key := tagCacheKey(ref)
+
+	l.tagCacheMu.RLock()
+	if entry, ok := l.tagCache[key]; ok && time.Now().Before(entry.expiresAt) {
+		l.tagCacheMu.RUnlock()
+		return entry.tags, entry.err
+	}
+	l.tagCacheMu.RUnlock()
+
+	tags, err := l.oci.ListTags(ctx, ref, authOverride)
+
+	l.tagCacheMu.Lock()
+	l.tagCache[key] = tagCacheEntry{
+		tags:      tags,
+		err:       err,
+		expiresAt: time.Now().Add(l.tagCacheTTL),
+	}
+	if len(l.tagCache) > 100 {
+		now := time.Now()
+		for k, v := range l.tagCache {
+			if now.After(v.expiresAt) {
+				delete(l.tagCache, k)
+			}
+		}
+	}
+	l.tagCacheMu.Unlock()
+
+	return tags, err
+}
+
+// tagCacheKey returns a normalized cache key for tag list lookups.
+// Strips any tag or digest from the ref so all variants of the same repo share one entry.
+func tagCacheKey(ref string) string {
+	// Strip digest
+	if idx := strings.Index(ref, "@"); idx >= 0 {
+		ref = ref[:idx]
+	}
+	// Strip tag
+	if idx := strings.LastIndex(ref, ":"); idx > strings.LastIndex(ref, "/") {
+		ref = ref[:idx]
+	}
+	return "tags:" + ref
 }
 
 func (l *Loader) cacheKey(ociRef, inline string) string {
