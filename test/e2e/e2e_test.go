@@ -62,7 +62,7 @@ service:
   version: 2.0.0
   owner: team-runtime
   image:
-    ref: nginx:latest
+    ref: docker.io/library/nginx:latest
 interfaces:
   - name: http-api
     type: http
