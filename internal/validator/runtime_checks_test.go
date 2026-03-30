@@ -515,7 +515,6 @@ func TestValidate_WithRuntimeChecks(t *testing.T) {
 
 	result := Validate(c, snap, true)
 
-
 	// Should have: ServiceExists, WorkloadExists, PortsValid, WorkloadTypeMatch,
 	// StateModelMatch, UpgradeStrategyMatch, GracefulShutdownMatch, ImageMatch
 	if len(result.Checks) != 8 {
