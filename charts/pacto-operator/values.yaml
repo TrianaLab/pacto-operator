@@ -97,8 +97,15 @@ dashboard:
   # The dashboard image is controlled by the operator and derived from the
   # bundled Pacto library version. It is not user-configurable.
   enabled: true
-  # -- Optional Secret name for OCI registry credentials (keys: username, password, token)
+  # -- Optional Secret name for OCI registry credentials (backward compatible).
+  # Supports Opaque secrets (keys: token or username+password) and kubernetes.io/dockerconfigjson secrets.
+  # Ignored when ociSecrets is set.
   ociSecret: ""
+  # -- List of Secret names for OCI registry credentials.
+  # Supports Opaque and kubernetes.io/dockerconfigjson secrets.
+  # When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry.
+  # Takes precedence over ociSecret.
+  ociSecrets: []
   # -- Resource requests and limits for the dashboard container.
   # The previous default of 128Mi memory limit caused OOMKill when monitoring
   # multiple OCI repositories and CRs simultaneously.

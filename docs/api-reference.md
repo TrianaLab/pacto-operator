@@ -86,7 +86,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `oci` _string_ | OCI is the OCI registry reference for the contract bundle (without tag).<br />The operator automatically resolves the latest semver tag from the registry.<br />Example: ghcr.io/org/service-pacto |  | Optional: \{\} <br /> |
 | `inline` _string_ | Inline allows specifying the contract YAML directly (for testing/dev). |  | Optional: \{\} <br /> |
-| `pullSecretRef` _string_ | PullSecretRef is the name of a Secret in the same namespace containing<br />OCI registry credentials. Supported keys: "token" (bearer token) or<br />"username"+"password" (basic auth). |  | Optional: \{\} <br /> |
+| `pullSecretRef` _string_ | PullSecretRef is the name of a Secret in the same namespace containing<br />OCI registry credentials. Supported secret types:<br />  - Opaque with "token" key (bearer token)<br />  - Opaque with "username"+"password" keys (basic auth)<br />  - kubernetes.io/dockerconfigjson (standard Docker registry auth) |  | Optional: \{\} <br /> |
 
 
 #### DependencyInfo

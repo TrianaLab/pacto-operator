@@ -22,6 +22,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/trianalab/pacto-operator/internal/credentials"
 )
 
 // Reconciler manages the lifecycle of dashboard Kubernetes resources.
@@ -37,6 +39,7 @@ type Reconciler struct {
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=create;update;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;delete
@@ -69,6 +72,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 	}
 	if err := r.reconcileClusterRoleBinding(ctx); err != nil {
 		return ctrl.Result{}, fmt.Errorf("cluster role binding: %w", err)
+	}
+	if err := r.reconcileOCICredentials(ctx); err != nil {
+		return ctrl.Result{}, fmt.Errorf("oci credentials: %w", err)
 	}
 	if err := r.reconcileDeployment(ctx); err != nil {
 		return ctrl.Result{}, fmt.Errorf("deployment: %w", err)
@@ -152,6 +158,57 @@ func (r *Reconciler) reconcileClusterRoleBinding(ctx context.Context) error {
 	return r.applyResource(ctx, desired, &rbacv1.ClusterRoleBinding{})
 }
 
+// reconcileOCICredentials reads the configured OCI secrets, merges their credentials,
+// and creates/updates a managed dockerconfigjson secret for the dashboard pod.
+// If no OCI secrets are configured, it cleans up any previously-created managed secret.
+func (r *Reconciler) reconcileOCICredentials(ctx context.Context) error {
+	log := logf.FromContext(ctx).WithName("dashboard")
+	secretNames := r.Config.EffectiveOCISecrets()
+
+	if len(secretNames) == 0 {
+		// Clean up managed secret if it exists
+		existing := &corev1.Secret{}
+		err := r.Get(ctx, client.ObjectKey{Namespace: r.Config.Namespace, Name: ManagedSecretName}, existing)
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return r.Delete(ctx, existing)
+	}
+
+	// Read all source secrets
+	var sources []*corev1.Secret
+	for _, name := range secretNames {
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: r.Config.Namespace, Name: name}, secret); err != nil {
+			log.Error(err, "Failed to read OCI secret", "secret", name)
+			return fmt.Errorf("reading OCI secret %q: %w", name, err)
+		}
+		sources = append(sources, secret)
+	}
+
+	// Merge credentials into a single dockerconfigjson
+	merged, err := credentials.MergeToDockerConfigJSON(sources)
+	if err != nil {
+		return fmt.Errorf("merging OCI credentials: %w", err)
+	}
+
+	desired := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ManagedSecretName,
+			Namespace: r.Config.Namespace,
+			Labels:    Labels(),
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{
+			corev1.DockerConfigJsonKey: merged,
+		},
+	}
+	return r.applyResource(ctx, desired, &corev1.Secret{})
+}
+
 func (r *Reconciler) reconcileDeployment(ctx context.Context) error {
 	desired := BuildDeployment(r.Config)
 	return r.applyResource(ctx, desired, &appsv1.Deployment{})
@@ -205,6 +262,7 @@ func (r *Reconciler) cleanup(ctx context.Context) error {
 	}{
 		{"Service", &corev1.Service{}, client.ObjectKey{Namespace: r.Config.Namespace, Name: Name}},
 		{"Deployment", &appsv1.Deployment{}, client.ObjectKey{Namespace: r.Config.Namespace, Name: Name}},
+		{"Secret", &corev1.Secret{}, client.ObjectKey{Namespace: r.Config.Namespace, Name: ManagedSecretName}},
 		{"ClusterRoleBinding", &rbacv1.ClusterRoleBinding{}, client.ObjectKey{Name: Name}},
 		{"ClusterRole", &rbacv1.ClusterRole{}, client.ObjectKey{Name: Name}},
 		{"ServiceAccount", &corev1.ServiceAccount{}, client.ObjectKey{Namespace: r.Config.Namespace, Name: Name}},

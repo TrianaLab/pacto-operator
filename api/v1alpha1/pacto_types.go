@@ -26,8 +26,10 @@ type ContractRef struct {
 	Inline string `json:"inline,omitempty"`
 
 	// PullSecretRef is the name of a Secret in the same namespace containing
-	// OCI registry credentials. Supported keys: "token" (bearer token) or
-	// "username"+"password" (basic auth).
+	// OCI registry credentials. Supported secret types:
+	//   - Opaque with "token" key (bearer token)
+	//   - Opaque with "username"+"password" keys (basic auth)
+	//   - kubernetes.io/dockerconfigjson (standard Docker registry auth)
 	// +optional
 	PullSecretRef string `json:"pullSecretRef,omitempty"`
 }

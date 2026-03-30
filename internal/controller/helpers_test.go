@@ -2942,7 +2942,7 @@ func TestResolveOCIAuth_Token(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(secret).Build()
 	r := &PactoReconciler{Client: c, Scheme: s}
 
-	auth, err := r.resolveOCIAuth(context.Background(), "default", "my-secret")
+	auth, err := r.resolveOCIAuth(context.Background(), "default", "my-secret", "ghcr.io/org/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2961,12 +2961,33 @@ func TestResolveOCIAuth_UsernamePassword(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(secret).Build()
 	r := &PactoReconciler{Client: c, Scheme: s}
 
-	auth, err := r.resolveOCIAuth(context.Background(), "default", "my-secret")
+	auth, err := r.resolveOCIAuth(context.Background(), "default", "my-secret", "ghcr.io/org/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if auth.Username != "user" || auth.Password != "pass" {
 		t.Fatalf("expected user/pass, got %s/%s", auth.Username, auth.Password)
+	}
+}
+
+func TestResolveOCIAuth_DockerConfigJSON(t *testing.T) {
+	s := newScheme()
+	_ = corev1.AddToScheme(s)
+	dockerCfg := `{"auths":{"ghcr.io":{"username":"docker-user","password":"docker-pass"}}}`
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "docker-secret", Namespace: "default"},
+		Type:       corev1.SecretTypeDockerConfigJson,
+		Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(dockerCfg)},
+	}
+	c := fake.NewClientBuilder().WithScheme(s).WithObjects(secret).Build()
+	r := &PactoReconciler{Client: c, Scheme: s}
+
+	auth, err := r.resolveOCIAuth(context.Background(), "default", "docker-secret", "ghcr.io/org/repo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if auth.Username != "docker-user" || auth.Password != "docker-pass" {
+		t.Fatalf("expected docker-user/docker-pass, got %s/%s", auth.Username, auth.Password)
 	}
 }
 
@@ -2976,7 +2997,7 @@ func TestResolveOCIAuth_MissingSecret(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).Build()
 	r := &PactoReconciler{Client: c, Scheme: s}
 
-	_, err := r.resolveOCIAuth(context.Background(), "default", "nonexistent")
+	_, err := r.resolveOCIAuth(context.Background(), "default", "nonexistent", "ghcr.io/org/repo")
 	if err == nil {
 		t.Fatal("expected error for missing secret")
 	}
@@ -2992,7 +3013,7 @@ func TestResolveOCIAuth_InvalidKeys(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(secret).Build()
 	r := &PactoReconciler{Client: c, Scheme: s}
 
-	_, err := r.resolveOCIAuth(context.Background(), "default", "bad-secret")
+	_, err := r.resolveOCIAuth(context.Background(), "default", "bad-secret", "ghcr.io/org/repo")
 	if err == nil {
 		t.Fatal("expected error for invalid keys")
 	}

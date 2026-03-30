@@ -10,8 +10,6 @@ package dashboard
 import (
 	"slices"
 	"testing"
-
-	corev1 "k8s.io/api/core/v1"
 )
 
 var testConfig = Config{
@@ -234,50 +232,90 @@ func TestBuildDeploymentWithOCISecret(t *testing.T) {
 		Enabled:   true,
 		Image:     "ghcr.io/trianalab/pacto-dashboard:0.24.2",
 		Namespace: "pacto-system",
-
 		OCISecret: "registry-creds",
 	}
 	deploy := BuildDeployment(cfg)
 	container := deploy.Spec.Template.Spec.Containers[0]
+	volumes := deploy.Spec.Template.Spec.Volumes
 
-	// Find secret-sourced env vars
-	secretEnvs := make(map[string]*corev1.SecretKeySelector)
-	for _, e := range container.Env {
-		if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
-			secretEnvs[e.Name] = e.ValueFrom.SecretKeyRef
+	// Should have oci-creds volume mount
+	var foundMount bool
+	for _, vm := range container.VolumeMounts {
+		if vm.Name == "oci-creds" {
+			foundMount = true
+			if vm.MountPath != "/home/pacto/.docker" {
+				t.Errorf("expected mount path /home/pacto/.docker, got %q", vm.MountPath)
+			}
+			if !vm.ReadOnly {
+				t.Error("expected read-only mount")
+			}
 		}
 	}
-
-	expectedKeys := map[string]string{
-		"PACTO_REGISTRY_USERNAME": "username",
-		"PACTO_REGISTRY_PASSWORD": "password",
-		"PACTO_REGISTRY_TOKEN":    "token",
+	if !foundMount {
+		t.Error("expected oci-creds volume mount")
 	}
-	for envName, secretKey := range expectedKeys {
-		sel, ok := secretEnvs[envName]
-		if !ok {
-			t.Errorf("expected env var %q from secret", envName)
-			continue
+
+	// Should have oci-creds volume
+	var foundVolume bool
+	for _, v := range volumes {
+		if v.Name == "oci-creds" {
+			foundVolume = true
+			if v.Secret == nil {
+				t.Fatal("expected secret volume source")
+			}
+			if v.Secret.SecretName != ManagedSecretName {
+				t.Errorf("expected secret name %q, got %q", ManagedSecretName, v.Secret.SecretName)
+			}
+			if !*v.Secret.Optional {
+				t.Error("expected optional=true")
+			}
+			if len(v.Secret.Items) != 1 || v.Secret.Items[0].Key != ".dockerconfigjson" {
+				t.Errorf("expected item key .dockerconfigjson, got %v", v.Secret.Items)
+			}
+			if v.Secret.Items[0].Path != "config.json" {
+				t.Errorf("expected item path config.json, got %q", v.Secret.Items[0].Path)
+			}
 		}
-		if sel.Name != cfg.OCISecret {
-			t.Errorf("expected secret name %q for %q, got %q", cfg.OCISecret, envName, sel.Name)
+	}
+	if !foundVolume {
+		t.Error("expected oci-creds volume")
+	}
+}
+
+func TestBuildDeploymentWithOCISecrets(t *testing.T) {
+	cfg := Config{
+		Enabled:    true,
+		Image:      "ghcr.io/trianalab/pacto-dashboard:0.24.2",
+		Namespace:  "pacto-system",
+		OCISecrets: []string{"ghcr-creds", "ecr-creds"},
+	}
+	deploy := BuildDeployment(cfg)
+	container := deploy.Spec.Template.Spec.Containers[0]
+
+	// Should have oci-creds volume mount (same as single secret)
+	var foundMount bool
+	for _, vm := range container.VolumeMounts {
+		if vm.Name == "oci-creds" {
+			foundMount = true
 		}
-		if sel.Key != secretKey {
-			t.Errorf("expected secret key %q for %q, got %q", secretKey, envName, sel.Key)
-		}
-		if !*sel.Optional {
-			t.Errorf("expected optional=true for %q", envName)
-		}
+	}
+	if !foundMount {
+		t.Error("expected oci-creds volume mount when OCISecrets is set")
 	}
 }
 
 func TestBuildDeploymentWithoutOCISecret(t *testing.T) {
-	deploy := BuildDeployment(testConfig) // No OCISecret
+	deploy := BuildDeployment(testConfig) // No OCISecret or OCISecrets
 	container := deploy.Spec.Template.Spec.Containers[0]
 
-	for _, e := range container.Env {
-		if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
-			t.Errorf("unexpected secret env var %q when no OCI secret configured", e.Name)
+	for _, vm := range container.VolumeMounts {
+		if vm.Name == "oci-creds" {
+			t.Error("unexpected oci-creds volume mount when no OCI secret configured")
+		}
+	}
+	for _, v := range deploy.Spec.Template.Spec.Volumes {
+		if v.Name == "oci-creds" {
+			t.Error("unexpected oci-creds volume when no OCI secret configured")
 		}
 	}
 }

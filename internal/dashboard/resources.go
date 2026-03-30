@@ -19,6 +19,10 @@ const (
 	// Resource naming
 	Name = "pacto-dashboard"
 
+	// ManagedSecretName is the name of the operator-managed Secret that holds
+	// merged OCI credentials for the dashboard pod.
+	ManagedSecretName = "pacto-dashboard-oci-creds"
+
 	// Labels
 	LabelManagedBy = "app.kubernetes.io/managed-by"
 	LabelComponent = "app.kubernetes.io/component"
@@ -122,41 +126,6 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 		})
 	}
 
-	if cfg.OCISecret != "" {
-		env = append(env,
-			corev1.EnvVar{
-				Name: "PACTO_REGISTRY_USERNAME",
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{Name: cfg.OCISecret},
-						Key:                  "username",
-						Optional:             boolPtr(true),
-					},
-				},
-			},
-			corev1.EnvVar{
-				Name: "PACTO_REGISTRY_PASSWORD",
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{Name: cfg.OCISecret},
-						Key:                  "password",
-						Optional:             boolPtr(true),
-					},
-				},
-			},
-			corev1.EnvVar{
-				Name: "PACTO_REGISTRY_TOKEN",
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{Name: cfg.OCISecret},
-						Key:                  "token",
-						Optional:             boolPtr(true),
-					},
-				},
-			},
-		)
-	}
-
 	volumeMounts := []corev1.VolumeMount{
 		{
 			Name:      "cache",
@@ -170,6 +139,29 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
 		},
+	}
+
+	// Mount merged OCI credentials when any OCI secrets are configured.
+	// The operator reconciler creates a managed dockerconfigjson secret
+	// that go-containerregistry's default keychain reads automatically.
+	if len(cfg.EffectiveOCISecrets()) > 0 {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "oci-creds",
+			MountPath: "/home/pacto/.docker",
+			ReadOnly:  true,
+		})
+		volumes = append(volumes, corev1.Volume{
+			Name: "oci-creds",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: ManagedSecretName,
+					Items: []corev1.KeyToPath{
+						{Key: corev1.DockerConfigJsonKey, Path: "config.json"},
+					},
+					Optional: boolPtr(true),
+				},
+			},
+		})
 	}
 
 	return &appsv1.Deployment{

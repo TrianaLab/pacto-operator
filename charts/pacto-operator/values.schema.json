@@ -132,6 +132,7 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "ociSecret": { "type": "string" },
+        "ociSecrets": { "type": "array", "items": { "type": "string" } },
         "service": {
           "type": "object",
           "additionalProperties": false,

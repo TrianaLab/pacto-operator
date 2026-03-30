@@ -9,21 +9,15 @@ ci-static: ci-fmt ci-vet ci-lint
 
 ci-test: envtest setup-envtest
 	@echo "==> Running unit/integration tests with coverage..."
-	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
-		go test $$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v /e2e) -coverprofile=cover.out
-	@echo "==> Coverage summary:"
-	@go tool cover -func=cover.out | tail -1
-	@echo "==> Enforcing 100% coverage (excluding cmd, zz_generated, loader)..."
-	@grep -v -E '(zz_generated|/cmd/|/loader/)' cover.out > cover.filtered.out || true
-	@total=$$(go tool cover -func=cover.filtered.out | tail -1 | awk '{print $$NF}' | tr -d '%'); \
-		echo "Filtered coverage: $${total}%"; \
-		threshold=100; \
-		if [ $$(echo "$$total < $$threshold" | bc) -eq 1 ]; then \
-			echo "Error: coverage is $${total}%, minimum is $${threshold}%"; \
-			go tool cover -func=cover.filtered.out | grep -v "100.0%"; \
-			exit 1; \
-		fi
-	@rm -f cover.filtered.out
+	@KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
+		go test $$(go list ./... | grep -v /e2e | grep -v /cmd | grep -v /api/ | grep -v /loader | grep -v /test/) -coverprofile=cover.out
+	@total=$$(go tool cover -func=cover.out | grep '^total:' | awk '{print $$NF}'); \
+	if [ "$$total" != "100.0%" ]; then \
+		echo "FAIL: total coverage is $$total, expected 100.0%"; \
+		go tool cover -func=cover.out | grep -v '100.0%'; \
+		exit 1; \
+	fi
+	@echo "    total coverage: 100.0%"
 
 ci-chart: helm-lint helm-template helm-unittest helm-schema helm-docs-check api-docs-check
 
