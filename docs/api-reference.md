@@ -66,7 +66,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `serviceName` _string_ | ServiceName is the service name declared in the contract. |  |  |
 | `version` _string_ | Version is the semver version from the contract. |  |  |
-| `owner` _string_ | Owner is the team/individual owning this service. |  | Optional: \{\} <br /> |
+| `owner` _[OwnerInfo](#ownerinfo)_ | Owner contains the structured ownership metadata from the contract.<br />For structured owners this includes team, DRI, and contacts.<br />For legacy string owners this is converted to OwnerInfo with the Team field set. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
+| `ownerDisplay` _string_ | OwnerDisplay is the canonical display string derived from owner metadata.<br />Precedence: structured team > legacy string > structured DRI.<br />Useful for printer columns, dashboards, and backward-compatible consumers. |  | Optional: \{\} <br /> |
 | `imageRef` _string_ | ImageRef is the container image reference from the contract. |  | Optional: \{\} <br /> |
 | `resolvedRef` _string_ | ResolvedRef is the fully-resolved OCI reference (with tag/digest).<br />Empty for inline contracts. |  | Optional: \{\} <br /> |
 
@@ -186,6 +187,44 @@ _Appears in:_
 | `hasPVC` _boolean_ | HasPVC indicates whether the workload uses PersistentVolumeClaims. |  |  |
 | `hasEmptyDir` _boolean_ | HasEmptyDir indicates whether the workload uses emptyDir volumes. |  |  |
 | `healthProbeInitialDelaySeconds` _integer_ | HealthProbeInitialDelaySeconds is the observed initialDelaySeconds from the first container's probe. |  | Optional: \{\} <br /> |
+
+
+#### OwnerContact
+
+
+
+OwnerContact is a provider-neutral contact point for service ownership.
+
+
+
+_Appears in:_
+- [OwnerInfo](#ownerinfo)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _string_ | Type is the contact channel type (e.g. email, chat, oncall). |  | Required: \{\} <br /> |
+| `value` _string_ | Value is the contact address or identifier. |  | Required: \{\} <br /> |
+| `purpose` _string_ | Purpose describes what this contact is used for (e.g. escalation, support, oncall). |  | Optional: \{\} <br /> |
+
+
+#### OwnerInfo
+
+
+
+OwnerInfo is the structured ownership metadata for a service.
+At least one field must be set.
+
+_Validation:_
+- MinProperties: 1
+
+_Appears in:_
+- [ContractInfo](#contractinfo)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `team` _string_ | Team is the owning team name. |  | Optional: \{\} <br /> |
+| `dri` _string_ | DRI is the directly responsible individual. |  | Optional: \{\} <br /> |
+| `contacts` _[OwnerContact](#ownercontact) array_ | Contacts lists provider-neutral contact points. |  | Optional: \{\} <br /> |
 
 
 #### Pacto
