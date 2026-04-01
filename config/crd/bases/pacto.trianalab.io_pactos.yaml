@@ -223,7 +223,46 @@ spec:
                       contract.
                     type: string
                   owner:
-                    description: Owner is the team/individual owning this service.
+                    description: |-
+                      Owner contains the structured ownership metadata from the contract.
+                      For structured owners this includes team, DRI, and contacts.
+                      For legacy string owners this is converted to OwnerInfo with the Team field set.
+                    minProperties: 1
+                    properties:
+                      contacts:
+                        description: Contacts lists provider-neutral contact points.
+                        items:
+                          description: OwnerContact is a provider-neutral contact
+                            point for service ownership.
+                          properties:
+                            purpose:
+                              description: Purpose describes what this contact is
+                                used for (e.g. escalation, support, oncall).
+                              type: string
+                            type:
+                              description: Type is the contact channel type (e.g.
+                                email, chat, oncall).
+                              type: string
+                            value:
+                              description: Value is the contact address or identifier.
+                              type: string
+                          required:
+                          - type
+                          - value
+                          type: object
+                        type: array
+                      dri:
+                        description: DRI is the directly responsible individual.
+                        type: string
+                      team:
+                        description: Team is the owning team name.
+                        type: string
+                    type: object
+                  ownerDisplay:
+                    description: |-
+                      OwnerDisplay is the canonical display string derived from owner metadata.
+                      Precedence: structured team > legacy string > structured DRI.
+                      Useful for printer columns, dashboards, and backward-compatible consumers.
                     type: string
                   resolvedRef:
                     description: |-
