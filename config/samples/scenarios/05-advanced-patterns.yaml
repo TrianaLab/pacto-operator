@@ -87,7 +87,16 @@ spec:
       service:
         name: notification-worker
         version: "1.3.0"
-        owner: team/notifications
+        owner:
+          team: notifications
+          dri: alice.johnson
+          contacts:
+            - type: email
+              value: notifications@acme.com
+              purpose: escalation
+            - type: chat
+              value: "#notifications"
+              purpose: support
         image:
           ref: ghcr.io/acme/notification-worker:1.3.0
       interfaces:
