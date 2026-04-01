@@ -131,6 +131,38 @@ type ResourcesStatus struct {
 	Workload *ResourceStatus `json:"workload,omitempty"`
 }
 
+// OwnerContact is a provider-neutral contact point for service ownership.
+type OwnerContact struct {
+	// Type is the contact channel type (e.g. email, chat, oncall).
+	// +required
+	Type string `json:"type"`
+
+	// Value is the contact address or identifier.
+	// +required
+	Value string `json:"value"`
+
+	// Purpose describes what this contact is used for (e.g. escalation, support, oncall).
+	// +optional
+	Purpose string `json:"purpose,omitempty"`
+}
+
+// OwnerInfo is the structured ownership metadata for a service.
+// At least one field must be set.
+// +kubebuilder:validation:MinProperties=1
+type OwnerInfo struct {
+	// Team is the owning team name.
+	// +optional
+	Team string `json:"team,omitempty"`
+
+	// DRI is the directly responsible individual.
+	// +optional
+	DRI string `json:"dri,omitempty"`
+
+	// Contacts lists provider-neutral contact points.
+	// +optional
+	Contacts []OwnerContact `json:"contacts,omitempty"`
+}
+
 // ContractInfo exposes parsed contract metadata.
 type ContractInfo struct {
 	// ServiceName is the service name declared in the contract.
@@ -139,9 +171,17 @@ type ContractInfo struct {
 	// Version is the semver version from the contract.
 	Version string `json:"version"`
 
-	// Owner is the team/individual owning this service.
+	// Owner contains the structured ownership metadata from the contract.
+	// For structured owners this includes team, DRI, and contacts.
+	// For legacy string owners this is converted to OwnerInfo with the Team field set.
 	// +optional
-	Owner string `json:"owner,omitempty"`
+	Owner *OwnerInfo `json:"owner,omitempty"`
+
+	// OwnerDisplay is the canonical display string derived from owner metadata.
+	// Precedence: structured team > legacy string > structured DRI.
+	// Useful for printer columns, dashboards, and backward-compatible consumers.
+	// +optional
+	OwnerDisplay string `json:"ownerDisplay,omitempty"`
 
 	// ImageRef is the container image reference from the contract.
 	// +optional

@@ -307,7 +307,7 @@ func TestPopulateContractStatus_Full(t *testing.T) {
 			Service: contract.ServiceIdentity{
 				Name:    "my-svc",
 				Version: "1.2.0",
-				Owner:   "team-x",
+				Owner:   contract.NewOwnerFromString("team-x"),
 				Image:   &contract.Image{Ref: "ghcr.io/org/my-svc:1.2.0", Private: true},
 			},
 			Interfaces: []contract.Interface{
@@ -379,8 +379,11 @@ func TestPopulateContractStatus_Full(t *testing.T) {
 	if pacto.Status.Contract.Version != "1.2.0" {
 		t.Fatalf("expected 1.2.0, got %s", pacto.Status.Contract.Version)
 	}
-	if pacto.Status.Contract.Owner != "team-x" {
-		t.Fatalf("expected team-x, got %s", pacto.Status.Contract.Owner)
+	if pacto.Status.Contract.Owner == nil || pacto.Status.Contract.Owner.Team != "team-x" {
+		t.Fatalf("expected owner team team-x, got %+v", pacto.Status.Contract.Owner)
+	}
+	if pacto.Status.Contract.OwnerDisplay != "team-x" {
+		t.Fatalf("expected ownerDisplay team-x, got %s", pacto.Status.Contract.OwnerDisplay)
 	}
 	if pacto.Status.Contract.ImageRef != "ghcr.io/org/my-svc:1.2.0" {
 		t.Fatalf("expected image ref, got %s", pacto.Status.Contract.ImageRef)
@@ -3541,6 +3544,185 @@ func TestReconcile_TaggedRef_StillSyncsRevisions(t *testing.T) {
 
 	if !listTagsCalled {
 		t.Error("ListTags should be called for tagged refs — syncAllRevisions should still run")
+	}
+}
+
+// ---------- mapOwnerToInfo ----------
+
+func TestMapOwnerToInfo_Empty(t *testing.T) {
+	var o contract.Owner
+	result := mapOwnerToInfo(o)
+	if result != nil {
+		t.Fatalf("expected nil for empty owner, got %+v", result)
+	}
+}
+
+func TestMapOwnerToInfo_LegacyString(t *testing.T) {
+	o := contract.NewOwnerFromString("team/payments")
+	result := mapOwnerToInfo(o)
+	if result == nil {
+		t.Fatal("expected non-nil for string owner")
+	}
+	if result.Team != "team/payments" {
+		t.Errorf("expected Team=team/payments, got %s", result.Team)
+	}
+	if result.DRI != "" {
+		t.Errorf("expected empty DRI, got %s", result.DRI)
+	}
+	if len(result.Contacts) != 0 {
+		t.Errorf("expected no contacts, got %d", len(result.Contacts))
+	}
+}
+
+func TestMapOwnerToInfo_Structured(t *testing.T) {
+	o := contract.NewOwnerFromInfo(contract.OwnerInfo{
+		Team: "platform-foundations",
+		DRI:  "alice.johnson",
+		Contacts: []contract.OwnerContact{
+			{Type: "email", Value: "platform-foundations@acme.com", Purpose: "escalation"},
+			{Type: "chat", Value: "#platform-foundations", Purpose: "support"},
+			{Type: "oncall", Value: "platform-foundations-oncall", Purpose: "oncall"},
+		},
+	})
+	result := mapOwnerToInfo(o)
+	if result == nil {
+		t.Fatal("expected non-nil for structured owner")
+	}
+	if result.Team != "platform-foundations" {
+		t.Errorf("expected Team=platform-foundations, got %s", result.Team)
+	}
+	if result.DRI != "alice.johnson" {
+		t.Errorf("expected DRI=alice.johnson, got %s", result.DRI)
+	}
+	if len(result.Contacts) != 3 {
+		t.Fatalf("expected 3 contacts, got %d", len(result.Contacts))
+	}
+	if result.Contacts[0].Type != "email" || result.Contacts[0].Value != "platform-foundations@acme.com" || result.Contacts[0].Purpose != "escalation" {
+		t.Errorf("unexpected contact[0]: %+v", result.Contacts[0])
+	}
+	if result.Contacts[1].Type != "chat" || result.Contacts[1].Value != "#platform-foundations" {
+		t.Errorf("unexpected contact[1]: %+v", result.Contacts[1])
+	}
+}
+
+func TestMapOwnerToInfo_StructuredDRIOnly(t *testing.T) {
+	o := contract.NewOwnerFromInfo(contract.OwnerInfo{DRI: "someone"})
+	result := mapOwnerToInfo(o)
+	if result == nil {
+		t.Fatal("expected non-nil")
+	}
+	if result.Team != "" {
+		t.Errorf("expected empty Team, got %s", result.Team)
+	}
+	if result.DRI != "someone" {
+		t.Errorf("expected DRI=someone, got %s", result.DRI)
+	}
+}
+
+// ---------- populateContractStatus owner scenarios ----------
+
+func TestPopulateContractStatus_StructuredOwner(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{
+				Name:    "my-svc",
+				Version: "1.0.0",
+				Owner: contract.NewOwnerFromInfo(contract.OwnerInfo{
+					Team: "platform",
+					DRI:  "alice",
+					Contacts: []contract.OwnerContact{
+						{Type: "email", Value: "platform@acme.com", Purpose: "escalation"},
+					},
+				}),
+			},
+			Interfaces: []contract.Interface{
+				{Name: "http-api", Type: "http"},
+			},
+		},
+		RawYAML: []byte("test"),
+	}
+
+	r.populateContractStatus(pacto, lr)
+
+	if pacto.Status.Contract.Owner == nil {
+		t.Fatal("expected structured owner in status")
+	}
+	if pacto.Status.Contract.Owner.Team != "platform" {
+		t.Errorf("expected Team=platform, got %s", pacto.Status.Contract.Owner.Team)
+	}
+	if pacto.Status.Contract.Owner.DRI != "alice" {
+		t.Errorf("expected DRI=alice, got %s", pacto.Status.Contract.Owner.DRI)
+	}
+	if len(pacto.Status.Contract.Owner.Contacts) != 1 {
+		t.Fatalf("expected 1 contact, got %d", len(pacto.Status.Contract.Owner.Contacts))
+	}
+	if pacto.Status.Contract.OwnerDisplay != "platform" {
+		t.Errorf("expected ownerDisplay=platform, got %s", pacto.Status.Contract.OwnerDisplay)
+	}
+}
+
+func TestPopulateContractStatus_StructuredOwnerDRIOnly(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{
+				Name:    "my-svc",
+				Version: "1.0.0",
+				Owner:   contract.NewOwnerFromInfo(contract.OwnerInfo{DRI: "bob"}),
+			},
+			Interfaces: []contract.Interface{
+				{Name: "http-api", Type: "http"},
+			},
+		},
+		RawYAML: []byte("test"),
+	}
+
+	r.populateContractStatus(pacto, lr)
+
+	// Canonical display: no team, falls through to DRI
+	if pacto.Status.Contract.OwnerDisplay != "bob" {
+		t.Errorf("expected ownerDisplay=bob, got %s", pacto.Status.Contract.OwnerDisplay)
+	}
+	if pacto.Status.Contract.Owner.DRI != "bob" {
+		t.Errorf("expected DRI=bob, got %s", pacto.Status.Contract.Owner.DRI)
+	}
+}
+
+func TestPopulateContractStatus_NoOwner(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{
+				Name:    "my-svc",
+				Version: "1.0.0",
+			},
+			Interfaces: []contract.Interface{
+				{Name: "http-api", Type: "http"},
+			},
+		},
+		RawYAML: []byte("test"),
+	}
+
+	r.populateContractStatus(pacto, lr)
+
+	if pacto.Status.Contract.Owner != nil {
+		t.Errorf("expected nil owner, got %+v", pacto.Status.Contract.Owner)
+	}
+	if pacto.Status.Contract.OwnerDisplay != "" {
+		t.Errorf("expected empty ownerDisplay, got %s", pacto.Status.Contract.OwnerDisplay)
 	}
 }
 

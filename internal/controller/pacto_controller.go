@@ -301,8 +301,11 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 	info := &pactov1alpha1.ContractInfo{
 		ServiceName: c.Service.Name,
 		Version:     c.Service.Version,
-		Owner:       c.Service.Owner,
 		ResolvedRef: lr.ResolvedRef,
+	}
+	if !c.Service.Owner.IsEmpty() {
+		info.Owner = mapOwnerToInfo(c.Service.Owner)
+		info.OwnerDisplay = c.Service.Owner.DisplayString()
 	}
 	if c.Service.Image != nil {
 		info.ImageRef = c.Service.Image.Ref
@@ -911,4 +914,32 @@ func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&batchv1.CronJob{}, enqueueForTarget(mgr.GetClient())).
 		Named("pacto").
 		Complete(r)
+}
+
+// mapOwnerToInfo converts a contract.Owner to the CRD OwnerInfo representation.
+// For legacy string owners, the string is placed in the Team field.
+// For structured owners, all fields are mapped directly.
+func mapOwnerToInfo(o contract.Owner) *pactov1alpha1.OwnerInfo {
+	if o.IsEmpty() {
+		return nil
+	}
+	if o.IsStructured() {
+		info := o.Info()
+		result := &pactov1alpha1.OwnerInfo{
+			Team: info.Team,
+			DRI:  info.DRI,
+		}
+		for _, c := range info.Contacts {
+			result.Contacts = append(result.Contacts, pactov1alpha1.OwnerContact{
+				Type:    c.Type,
+				Value:   c.Value,
+				Purpose: c.Purpose,
+			})
+		}
+		return result
+	}
+	// Legacy string owner: store in Team field for uniform access.
+	return &pactov1alpha1.OwnerInfo{
+		Team: o.String(),
+	}
 }
