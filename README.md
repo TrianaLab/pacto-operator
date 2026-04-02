@@ -163,12 +163,6 @@ ContractStatus reflects **contract validation/compliance**, not runtime health. 
 
 ---
 
-## Breaking change: plural `policies` and `configurations`
-
-`status.policy` and `status.configuration` have been replaced with `status.policies` and `status.configurations` (arrays). Legacy single-config contracts are normalized automatically. Update any scripts or integrations that read the old singular fields.
-
----
-
 ## Installation
 
 ### Helm (recommended)
