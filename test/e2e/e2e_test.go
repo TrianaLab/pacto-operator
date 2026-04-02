@@ -149,7 +149,7 @@ configuration:
       values:
         port: 8080
     - name: monitoring
-      ref: "oci://monitoring-config"
+      ref: "oci://ghcr.io/acme/monitoring-config"
 `
 
 	// contractWithPolicies includes multiple policies.

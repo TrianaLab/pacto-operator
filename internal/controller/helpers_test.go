@@ -821,7 +821,7 @@ func TestPopulateContractStatus_MultiConfig(t *testing.T) {
 					},
 					{
 						Name: "monitoring",
-						Ref:  "oci://monitoring-config",
+						Ref:  "oci://ghcr.io/acme/monitoring-config",
 					},
 				},
 			},
@@ -852,7 +852,7 @@ func TestPopulateContractStatus_MultiConfig(t *testing.T) {
 	if mon.Name != "monitoring" {
 		t.Fatalf("expected name 'monitoring', got %s", mon.Name)
 	}
-	if mon.Ref != "oci://monitoring-config" {
+	if mon.Ref != "oci://ghcr.io/acme/monitoring-config" {
 		t.Fatalf("expected monitoring ref, got %s", mon.Ref)
 	}
 	if mon.HasSchema {
