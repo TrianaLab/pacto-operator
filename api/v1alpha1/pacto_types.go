@@ -215,8 +215,15 @@ type InterfaceInfo struct {
 	HasContractFile bool `json:"hasContractFile"`
 }
 
-// ConfigurationInfo describes the contract's configuration section.
+// ConfigurationInfo describes a single configuration scope from the contract.
+// When the contract uses legacy top-level configuration fields (schema/ref/values),
+// the operator emits a single entry with an empty Name.
+// When the contract uses configuration.configs[], each named scope is a separate entry.
 type ConfigurationInfo struct {
+	// Name is the configuration scope name. Empty for legacy single-config contracts.
+	// +optional
+	Name string `json:"name,omitempty"`
+
 	// HasSchema indicates whether a JSON Schema file is bundled.
 	HasSchema bool `json:"hasSchema"`
 
@@ -246,10 +253,16 @@ type DependencyInfo struct {
 	Compatibility string `json:"compatibility,omitempty"`
 }
 
-// PolicyInfo describes the contract's policy section.
+// PolicyInfo describes a single policy source from the contract.
+// Each policy provides either a local JSON Schema file or a reference to an
+// external contract whose bundle contains the policy schema.
 type PolicyInfo struct {
 	// HasSchema indicates whether a policy schema file is bundled.
 	HasSchema bool `json:"hasSchema"`
+
+	// Schema is the bundle-relative path to the policy schema file, if local.
+	// +optional
+	Schema string `json:"schema,omitempty"`
 
 	// Ref is the external OCI reference for the policy schema, if used.
 	// +optional
@@ -469,17 +482,21 @@ type PactoStatus struct {
 	// +optional
 	Interfaces []InterfaceInfo `json:"interfaces,omitempty"`
 
-	// Configuration describes the contract's configuration section.
+	// Configurations lists the contract's configuration scopes.
+	// Legacy single-config contracts produce one entry with an empty Name.
+	// Multi-config contracts (configuration.configs[]) produce one entry per named scope.
 	// +optional
-	Configuration *ConfigurationInfo `json:"configuration,omitempty"`
+	Configurations []ConfigurationInfo `json:"configurations,omitempty"`
 
 	// Dependencies lists the declared dependencies from the contract.
 	// +optional
 	Dependencies []DependencyInfo `json:"dependencies,omitempty"`
 
-	// Policy describes the contract's policy section.
+	// Policies lists the contract's declared policy sources (metadata only).
+	// Each entry describes a local schema or external ref; the operator does not
+	// resolve or enforce ref-based policies at runtime.
 	// +optional
-	Policy *PolicyInfo `json:"policy,omitempty"`
+	Policies []PolicyInfo `json:"policies,omitempty"`
 
 	// Runtime describes the contract's runtime section (declared).
 	// +optional
