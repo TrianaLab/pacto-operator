@@ -149,8 +149,7 @@ configuration:
       values:
         port: 8080
     - name: monitoring
-      values:
-        metrics_enabled: true
+      ref: "oci://monitoring-config"
 `
 
 	// contractWithPolicies includes multiple policies.
