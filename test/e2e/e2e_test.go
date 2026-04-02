@@ -112,6 +112,77 @@ service:
   name: ""
   version: ""
 `
+
+	// contractWithConfig includes a legacy single configuration section.
+	contractWithConfig = `
+pactoVersion: "1.0"
+service:
+  name: config-svc
+  version: 1.0.0
+  owner: team-config
+interfaces:
+  - name: http-api
+    type: http
+    port: 8080
+configuration:
+  schema: config-schema.json
+  values:
+    db_host: localhost
+    api_key: "secret://vault/key"
+`
+
+	// contractWithMultiConfig includes multiple named configuration scopes.
+	contractWithMultiConfig = `
+pactoVersion: "1.0"
+service:
+  name: multi-config-svc
+  version: 1.0.0
+  owner: team-platform
+interfaces:
+  - name: http-api
+    type: http
+    port: 8080
+configuration:
+  configs:
+    - name: app
+      schema: app-config.json
+      values:
+        port: 8080
+    - name: monitoring
+      values:
+        metrics_enabled: true
+`
+
+	// contractWithPolicies includes multiple policies.
+	contractWithPolicies = `
+pactoVersion: "1.0"
+service:
+  name: policy-svc
+  version: 1.0.0
+  owner: team-security
+interfaces:
+  - name: http-api
+    type: http
+    port: 8080
+policies:
+  - schema: security-policy.json
+  - ref: "oci://org-policies/baseline"
+`
+
+	// contractWithSinglePolicy includes a single local-schema policy.
+	contractWithSinglePolicy = `
+pactoVersion: "1.0"
+service:
+  name: single-policy-svc
+  version: 1.0.0
+  owner: team-ops
+interfaces:
+  - name: http-api
+    type: http
+    port: 8080
+policies:
+  - schema: ops-policy.json
+`
 )
 
 var _ = Describe("Operator", Ordered, func() {
@@ -467,7 +538,84 @@ var _ = Describe("Operator", Ordered, func() {
 		})
 	})
 
-	// ── F. Metrics Verification ───────────────────────────────────────────
+	// ── F. Configuration and Policy Status ────────────────────────────────
+
+	Context("Configuration and Policy Status", Ordered, func() {
+		It("should surface legacy single-config in status.configurations", func() {
+			name := "e2e-legacy-config"
+			applyPacto(name, testNamespace, contractWithConfig, "", nil)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("Reference"))
+				g.Expect(status.Configurations).To(HaveLen(1),
+					"legacy single-config should produce one entry")
+				g.Expect(status.Configurations[0].HasSchema).To(BeTrue())
+				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("db_host"))
+				g.Expect(status.Configurations[0].SecretKeys).To(ContainElement("api_key"))
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should surface multi-config in status.configurations", func() {
+			name := "e2e-multi-config"
+			applyPacto(name, testNamespace, contractWithMultiConfig, "", nil)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("Reference"))
+				g.Expect(status.Configurations).To(HaveLen(2),
+					"multi-config should produce two entries")
+				g.Expect(status.Configurations[0].Name).To(Equal("app"))
+				g.Expect(status.Configurations[0].HasSchema).To(BeTrue())
+				g.Expect(status.Configurations[1].Name).To(Equal("monitoring"))
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should surface multiple policies in status.policies", func() {
+			name := "e2e-multi-policy"
+			applyPacto(name, testNamespace, contractWithPolicies, "", nil)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				// Contract may be NonCompliant if policy schemas aren't found in bundle,
+				// but policies metadata should still be surfaced in status.
+				g.Expect(status.Policies).To(HaveLen(2),
+					"should have two policy entries")
+				g.Expect(status.Policies[0].HasSchema).To(BeTrue())
+				g.Expect(status.Policies[1].Ref).To(Equal("oci://org-policies/baseline"))
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should surface single local-schema policy", func() {
+			name := "e2e-single-policy"
+			applyPacto(name, testNamespace, contractWithSinglePolicy, "", nil)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.Policies).To(HaveLen(1))
+				g.Expect(status.Policies[0].HasSchema).To(BeTrue())
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should have empty configurations and policies when not declared", func() {
+			name := "e2e-no-config-policy"
+			applyPacto(name, testNamespace, contractSimple, "", nil)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("Reference"))
+				g.Expect(status.Configurations).To(BeEmpty())
+				g.Expect(status.Policies).To(BeEmpty())
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+	})
+
+	// ── G. Metrics Verification ───────────────────────────────────────────
 
 	Context("Metrics", Ordered, func() {
 		It("should expose pacto-specific metrics on the metrics endpoint", func() {
@@ -526,19 +674,35 @@ var _ = Describe("Operator", Ordered, func() {
 // pactoStatus is a lightweight JSON representation of PactoStatus for assertions.
 // Uses interface{} for numeric fields since kubectl JSON output may use float64.
 type pactoStatus struct {
-	ContractStatus     string            `json:"contractStatus"`
-	ContractVersion    string            `json:"contractVersion"`
-	CurrentRevision    string            `json:"currentRevision"`
-	LastReconciledAt   string            `json:"lastReconciledAt"`
-	ObservedGeneration float64           `json:"observedGeneration"`
-	Summary            *checkSummary     `json:"summary"`
-	Contract           *contractInfo     `json:"contract"`
-	Validation         *validationResult `json:"validation"`
-	Resources          *resourcesStatus  `json:"resources"`
-	Ports              *portStatus       `json:"ports"`
-	Runtime            *runtimeInfo      `json:"runtime"`
-	ObservedRuntime    *observedRuntime  `json:"observedRuntime"`
-	Conditions         []condition       `json:"conditions"`
+	ContractStatus     string              `json:"contractStatus"`
+	ContractVersion    string              `json:"contractVersion"`
+	CurrentRevision    string              `json:"currentRevision"`
+	LastReconciledAt   string              `json:"lastReconciledAt"`
+	ObservedGeneration float64             `json:"observedGeneration"`
+	Summary            *checkSummary       `json:"summary"`
+	Contract           *contractInfo       `json:"contract"`
+	Validation         *validationResult   `json:"validation"`
+	Resources          *resourcesStatus    `json:"resources"`
+	Ports              *portStatus         `json:"ports"`
+	Runtime            *runtimeInfo        `json:"runtime"`
+	ObservedRuntime    *observedRuntime    `json:"observedRuntime"`
+	Configurations     []configurationInfo `json:"configurations"`
+	Policies           []policyInfo        `json:"policies"`
+	Conditions         []condition         `json:"conditions"`
+}
+
+type configurationInfo struct {
+	Name       string   `json:"name"`
+	HasSchema  bool     `json:"hasSchema"`
+	Ref        string   `json:"ref"`
+	ValueKeys  []string `json:"valueKeys"`
+	SecretKeys []string `json:"secretKeys"`
+}
+
+type policyInfo struct {
+	HasSchema bool   `json:"hasSchema"`
+	Schema    string `json:"schema"`
+	Ref       string `json:"ref"`
 }
 
 type checkSummary struct {

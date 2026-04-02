@@ -219,9 +219,9 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.Ports = nil
 	pacto.Status.Endpoints = nil
 	pacto.Status.Interfaces = nil
-	pacto.Status.Configuration = nil
+	pacto.Status.Configurations = nil
 	pacto.Status.Dependencies = nil
-	pacto.Status.Policy = nil
+	pacto.Status.Policies = nil
 	pacto.Status.Runtime = nil
 	pacto.Status.ObservedRuntime = nil
 	pacto.Status.Scaling = nil
@@ -327,21 +327,24 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		pacto.Status.Interfaces = append(pacto.Status.Interfaces, ii)
 	}
 
-	// Configuration
+	// Configurations (supports both legacy single-config and multi-config)
 	if c.Configuration != nil {
-		ci := &pactov1alpha1.ConfigurationInfo{
-			HasSchema: c.Configuration.Schema != "",
-			Ref:       c.Configuration.Ref,
-		}
-		for k, v := range c.Configuration.Values {
-			ci.ValueKeys = append(ci.ValueKeys, k)
-			if s, ok := v.(string); ok && strings.HasPrefix(s, "secret://") {
-				ci.SecretKeys = append(ci.SecretKeys, k)
+		for _, eff := range c.Configuration.EffectiveConfigs() {
+			ci := pactov1alpha1.ConfigurationInfo{
+				Name:      eff.Name,
+				HasSchema: eff.Schema != "",
+				Ref:       eff.Ref,
 			}
+			for k, v := range eff.Values {
+				ci.ValueKeys = append(ci.ValueKeys, k)
+				if s, ok := v.(string); ok && strings.HasPrefix(s, "secret://") {
+					ci.SecretKeys = append(ci.SecretKeys, k)
+				}
+			}
+			sort.Strings(ci.ValueKeys)
+			sort.Strings(ci.SecretKeys)
+			pacto.Status.Configurations = append(pacto.Status.Configurations, ci)
 		}
-		sort.Strings(ci.ValueKeys)
-		sort.Strings(ci.SecretKeys)
-		pacto.Status.Configuration = ci
 	}
 
 	// Dependencies
@@ -353,12 +356,13 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		})
 	}
 
-	// Policy
-	if c.Policy != nil {
-		pacto.Status.Policy = &pactov1alpha1.PolicyInfo{
-			HasSchema: c.Policy.Schema != "",
-			Ref:       c.Policy.Ref,
-		}
+	// Policies
+	for _, pol := range c.Policies {
+		pacto.Status.Policies = append(pacto.Status.Policies, pactov1alpha1.PolicyInfo{
+			HasSchema: pol.Schema != "",
+			Schema:    pol.Schema,
+			Ref:       pol.Ref,
+		})
 	}
 
 	// Runtime

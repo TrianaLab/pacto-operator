@@ -163,6 +163,21 @@ ContractStatus reflects **contract validation/compliance**, not runtime health. 
 
 ---
 
+## Breaking change: plural `policies` and `configurations` (Pacto v0.35.1)
+
+The operator now depends on Pacto `v0.35.1`, which introduced:
+
+- **`policy` → `policies[]`**: Contracts now declare zero or more policy sources. The CRD status field changed from `status.policy` (singular `*PolicyInfo`) to `status.policies` (array `[]PolicyInfo`). Each entry includes `hasSchema`, `schema` (new), and `ref`.
+- **`configuration.configs[]`**: Contracts can now declare multiple named configuration scopes. The CRD status field changed from `status.configuration` (singular `*ConfigurationInfo`) to `status.configurations` (array `[]ConfigurationInfo`). Each entry includes `name` (empty for legacy single-config), `hasSchema`, `ref`, `valueKeys`, and `secretKeys`.
+
+**Legacy support**: Contracts using the old single-config form (`configuration.schema` / `configuration.ref` / `configuration.values`) are fully supported. The operator normalizes them into a single-element `configurations[]` array via `EffectiveConfigs()`.
+
+**Validation**: The operator uses `validation.Validate()` (local-only). Local policy schemas bundled in the contract are enforced. Ref-based policies (`policies[].ref`) are surfaced as metadata in the CRD status but are NOT resolved/enforced at the operator level — resolution would require pulling additional OCI bundles during reconciliation. Ref-based policy refs that cannot be resolved locally produce `POLICY_REF_UNRESOLVED` validation errors (fail-closed).
+
+**Migration**: Update any scripts, dashboards, alerts, or integrations that read `.status.policy` or `.status.configuration` to use the plural forms `.status.policies` and `.status.configurations`.
+
+---
+
 ## Installation
 
 ### Helm (recommended)

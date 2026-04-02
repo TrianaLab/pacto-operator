@@ -188,33 +188,46 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              configuration:
-                description: Configuration describes the contract's configuration
-                  section.
-                properties:
-                  hasSchema:
-                    description: HasSchema indicates whether a JSON Schema file is
-                      bundled.
-                    type: boolean
-                  ref:
-                    description: Ref is the external OCI reference for the configuration
-                      schema, if used.
-                    type: string
-                  secretKeys:
-                    description: SecretKeys lists configuration keys whose values
-                      reference secrets.
-                    items:
+              configurations:
+                description: |-
+                  Configurations lists the contract's configuration scopes.
+                  Legacy single-config contracts produce one entry with an empty Name.
+                  Multi-config contracts (configuration.configs[]) produce one entry per named scope.
+                items:
+                  description: |-
+                    ConfigurationInfo describes a single configuration scope from the contract.
+                    When the contract uses legacy top-level configuration fields (schema/ref/values),
+                    the operator emits a single entry with an empty Name.
+                    When the contract uses configuration.configs[], each named scope is a separate entry.
+                  properties:
+                    hasSchema:
+                      description: HasSchema indicates whether a JSON Schema file
+                        is bundled.
+                      type: boolean
+                    name:
+                      description: Name is the configuration scope name. Empty for
+                        legacy single-config contracts.
                       type: string
-                    type: array
-                  valueKeys:
-                    description: ValueKeys lists the declared configuration value
-                      keys.
-                    items:
+                    ref:
+                      description: Ref is the external OCI reference for the configuration
+                        schema, if used.
                       type: string
-                    type: array
-                required:
-                - hasSchema
-                type: object
+                    secretKeys:
+                      description: SecretKeys lists configuration keys whose values
+                        reference secrets.
+                      items:
+                        type: string
+                      type: array
+                    valueKeys:
+                      description: ValueKeys lists the declared configuration value
+                        keys.
+                      items:
+                        type: string
+                      type: array
+                  required:
+                  - hasSchema
+                  type: object
+                type: array
               contract:
                 description: Contract exposes parsed contract metadata.
                 properties:
@@ -477,20 +490,32 @@ spec:
                 - hasEmptyDir
                 - hasPVC
                 type: object
-              policy:
-                description: Policy describes the contract's policy section.
-                properties:
-                  hasSchema:
-                    description: HasSchema indicates whether a policy schema file
-                      is bundled.
-                    type: boolean
-                  ref:
-                    description: Ref is the external OCI reference for the policy
-                      schema, if used.
-                    type: string
-                required:
-                - hasSchema
-                type: object
+              policies:
+                description: |-
+                  Policies lists the contract's policy sources.
+                  Each entry represents a policy constraint (local schema or external ref).
+                items:
+                  description: |-
+                    PolicyInfo describes a single policy source from the contract.
+                    Each policy provides either a local JSON Schema file or a reference to an
+                    external contract whose bundle contains the policy schema.
+                  properties:
+                    hasSchema:
+                      description: HasSchema indicates whether a policy schema file
+                        is bundled.
+                      type: boolean
+                    ref:
+                      description: Ref is the external OCI reference for the policy
+                        schema, if used.
+                      type: string
+                    schema:
+                      description: Schema is the bundle-relative path to the policy
+                        schema file, if local.
+                      type: string
+                  required:
+                  - hasSchema
+                  type: object
+                type: array
               ports:
                 description: Ports describes the port comparison between contract
                   and runtime.

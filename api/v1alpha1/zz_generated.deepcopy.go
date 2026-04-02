@@ -448,20 +448,22 @@ func (in *PactoStatus) DeepCopyInto(out *PactoStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.Configuration != nil {
-		in, out := &in.Configuration, &out.Configuration
-		*out = new(ConfigurationInfo)
-		(*in).DeepCopyInto(*out)
+	if in.Configurations != nil {
+		in, out := &in.Configurations, &out.Configurations
+		*out = make([]ConfigurationInfo, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 	if in.Dependencies != nil {
 		in, out := &in.Dependencies, &out.Dependencies
 		*out = make([]DependencyInfo, len(*in))
 		copy(*out, *in)
 	}
-	if in.Policy != nil {
-		in, out := &in.Policy, &out.Policy
-		*out = new(PolicyInfo)
-		**out = **in
+	if in.Policies != nil {
+		in, out := &in.Policies, &out.Policies
+		*out = make([]PolicyInfo, len(*in))
+		copy(*out, *in)
 	}
 	if in.Runtime != nil {
 		in, out := &in.Runtime, &out.Runtime

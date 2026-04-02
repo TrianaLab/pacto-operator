@@ -328,9 +328,9 @@ func TestPopulateContractStatus_Full(t *testing.T) {
 				{Ref: "oci://dep-a", Required: true, Compatibility: "^1.0.0"},
 				{Ref: "oci://dep-b", Required: false},
 			},
-			Policy: &contract.Policy{
-				Schema: "policy-schema.json",
-				Ref:    "oci://policy-ref",
+			Policies: []contract.PolicySource{
+				{Schema: "policy-schema.json"},
+				{Ref: "oci://policy-ref"},
 			},
 			Runtime: &contract.Runtime{
 				Workload: "service",
@@ -411,27 +411,28 @@ func TestPopulateContractStatus_Full(t *testing.T) {
 		t.Fatalf("expected nil port for events, got %v", eventsIface.Port)
 	}
 
-	// Configuration
-	if pacto.Status.Configuration == nil {
-		t.Fatal("expected configuration info")
+	// Configurations (legacy single-config produces one entry)
+	if len(pacto.Status.Configurations) != 1 {
+		t.Fatalf("expected 1 configuration, got %d", len(pacto.Status.Configurations))
 	}
-	if !pacto.Status.Configuration.HasSchema {
+	cfg := pacto.Status.Configurations[0]
+	if !cfg.HasSchema {
 		t.Fatal("expected HasSchema=true")
 	}
-	if pacto.Status.Configuration.Ref != "oci://config-ref" {
-		t.Fatalf("expected config ref, got %s", pacto.Status.Configuration.Ref)
+	if cfg.Ref != "oci://config-ref" {
+		t.Fatalf("expected config ref, got %s", cfg.Ref)
 	}
-	if len(pacto.Status.Configuration.ValueKeys) != 3 {
-		t.Fatalf("expected 3 value keys, got %d", len(pacto.Status.Configuration.ValueKeys))
+	if len(cfg.ValueKeys) != 3 {
+		t.Fatalf("expected 3 value keys, got %d", len(cfg.ValueKeys))
 	}
-	if pacto.Status.Configuration.ValueKeys[0] != "db_host" {
-		t.Fatalf("expected sorted value keys, first is %s", pacto.Status.Configuration.ValueKeys[0])
+	if cfg.ValueKeys[0] != "db_host" {
+		t.Fatalf("expected sorted value keys, first is %s", cfg.ValueKeys[0])
 	}
-	if len(pacto.Status.Configuration.SecretKeys) != 1 {
-		t.Fatalf("expected 1 secret key, got %d", len(pacto.Status.Configuration.SecretKeys))
+	if len(cfg.SecretKeys) != 1 {
+		t.Fatalf("expected 1 secret key, got %d", len(cfg.SecretKeys))
 	}
-	if pacto.Status.Configuration.SecretKeys[0] != "db_password" {
-		t.Fatalf("expected db_password secret key, got %s", pacto.Status.Configuration.SecretKeys[0])
+	if cfg.SecretKeys[0] != "db_password" {
+		t.Fatalf("expected db_password secret key, got %s", cfg.SecretKeys[0])
 	}
 
 	// Dependencies
@@ -445,15 +446,18 @@ func TestPopulateContractStatus_Full(t *testing.T) {
 		t.Fatalf("expected empty compatibility for dep-b, got %s", pacto.Status.Dependencies[1].Compatibility)
 	}
 
-	// Policy
-	if pacto.Status.Policy == nil {
-		t.Fatal("expected policy info")
+	// Policies (two entries: one local schema, one ref-based)
+	if len(pacto.Status.Policies) != 2 {
+		t.Fatalf("expected 2 policies, got %d", len(pacto.Status.Policies))
 	}
-	if !pacto.Status.Policy.HasSchema {
-		t.Fatal("expected HasSchema=true for policy")
+	if !pacto.Status.Policies[0].HasSchema {
+		t.Fatal("expected HasSchema=true for first policy")
 	}
-	if pacto.Status.Policy.Ref != "oci://policy-ref" {
-		t.Fatalf("expected policy ref, got %s", pacto.Status.Policy.Ref)
+	if pacto.Status.Policies[0].Schema != "policy-schema.json" {
+		t.Fatalf("expected policy schema, got %s", pacto.Status.Policies[0].Schema)
+	}
+	if pacto.Status.Policies[1].Ref != "oci://policy-ref" {
+		t.Fatalf("expected policy ref, got %s", pacto.Status.Policies[1].Ref)
 	}
 
 	// Runtime
@@ -548,11 +552,11 @@ func TestPopulateContractStatus_Minimal(t *testing.T) {
 	if pacto.Status.Contract.ImageRef != "" {
 		t.Fatalf("expected empty image ref, got %s", pacto.Status.Contract.ImageRef)
 	}
-	if pacto.Status.Configuration != nil {
-		t.Fatal("expected nil configuration")
+	if len(pacto.Status.Configurations) != 0 {
+		t.Fatal("expected no configurations")
 	}
-	if pacto.Status.Policy != nil {
-		t.Fatal("expected nil policy")
+	if len(pacto.Status.Policies) != 0 {
+		t.Fatal("expected no policies")
 	}
 	if pacto.Status.Runtime != nil {
 		t.Fatal("expected nil runtime")
@@ -684,10 +688,10 @@ func TestPopulateContractStatus_ConfigurationNoSchema(t *testing.T) {
 
 	r.populateContractStatus(pacto, lr)
 
-	ci := pacto.Status.Configuration
-	if ci == nil {
-		t.Fatal("expected configuration info")
+	if len(pacto.Status.Configurations) != 1 {
+		t.Fatalf("expected 1 configuration, got %d", len(pacto.Status.Configurations))
 	}
+	ci := pacto.Status.Configurations[0]
 	if ci.HasSchema {
 		t.Fatal("expected HasSchema=false")
 	}
@@ -778,22 +782,199 @@ func TestPopulateContractStatus_PolicyNoSchema(t *testing.T) {
 
 	lr := &loader.LoadResult{
 		Contract: &contract.Contract{
-			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
-			Policy:  &contract.Policy{Ref: "oci://pol"},
+			Service:  contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			Policies: []contract.PolicySource{{Ref: "oci://pol"}},
 		},
 		RawYAML: []byte("test"),
 	}
 
 	r.populateContractStatus(pacto, lr)
 
-	if pacto.Status.Policy == nil {
-		t.Fatal("expected policy info")
+	if len(pacto.Status.Policies) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(pacto.Status.Policies))
 	}
-	if pacto.Status.Policy.HasSchema {
+	if pacto.Status.Policies[0].HasSchema {
 		t.Fatal("expected HasSchema=false")
 	}
-	if pacto.Status.Policy.Ref != "oci://pol" {
-		t.Fatalf("expected oci://pol, got %s", pacto.Status.Policy.Ref)
+	if pacto.Status.Policies[0].Ref != "oci://pol" {
+		t.Fatalf("expected oci://pol, got %s", pacto.Status.Policies[0].Ref)
+	}
+}
+
+// ---------- populateContractStatus: multi-config ----------
+
+func TestPopulateContractStatus_MultiConfig(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			Configuration: &contract.Configuration{
+				Configs: []contract.NamedConfigSource{
+					{
+						Name:   "app",
+						Schema: "app-schema.json",
+						Values: map[string]any{"port": 8080, "api_key": "secret://vault/api-key"},
+					},
+					{
+						Name: "monitoring",
+						Ref:  "oci://monitoring-config",
+					},
+				},
+			},
+		},
+		RawYAML: []byte("test"),
+	}
+
+	r.populateContractStatus(pacto, lr)
+
+	if len(pacto.Status.Configurations) != 2 {
+		t.Fatalf("expected 2 configurations, got %d", len(pacto.Status.Configurations))
+	}
+	app := pacto.Status.Configurations[0]
+	if app.Name != "app" {
+		t.Fatalf("expected name 'app', got %s", app.Name)
+	}
+	if !app.HasSchema {
+		t.Fatal("expected HasSchema=true for app config")
+	}
+	if len(app.ValueKeys) != 2 {
+		t.Fatalf("expected 2 value keys, got %d", len(app.ValueKeys))
+	}
+	if len(app.SecretKeys) != 1 || app.SecretKeys[0] != "api_key" {
+		t.Fatalf("expected [api_key] secret key, got %v", app.SecretKeys)
+	}
+
+	mon := pacto.Status.Configurations[1]
+	if mon.Name != "monitoring" {
+		t.Fatalf("expected name 'monitoring', got %s", mon.Name)
+	}
+	if mon.Ref != "oci://monitoring-config" {
+		t.Fatalf("expected monitoring ref, got %s", mon.Ref)
+	}
+	if mon.HasSchema {
+		t.Fatal("expected HasSchema=false for ref-based config")
+	}
+}
+
+func TestPopulateContractStatus_MultiPolicy(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			Policies: []contract.PolicySource{
+				{Schema: "security-policy.json"},
+				{Schema: "naming-policy.json"},
+				{Ref: "oci://org-policies/baseline"},
+			},
+		},
+		RawYAML: []byte("test"),
+	}
+
+	r.populateContractStatus(pacto, lr)
+
+	if len(pacto.Status.Policies) != 3 {
+		t.Fatalf("expected 3 policies, got %d", len(pacto.Status.Policies))
+	}
+	if !pacto.Status.Policies[0].HasSchema || pacto.Status.Policies[0].Schema != "security-policy.json" {
+		t.Fatalf("unexpected first policy: %+v", pacto.Status.Policies[0])
+	}
+	if !pacto.Status.Policies[1].HasSchema || pacto.Status.Policies[1].Schema != "naming-policy.json" {
+		t.Fatalf("unexpected second policy: %+v", pacto.Status.Policies[1])
+	}
+	if pacto.Status.Policies[2].HasSchema || pacto.Status.Policies[2].Ref != "oci://org-policies/baseline" {
+		t.Fatalf("unexpected third policy: %+v", pacto.Status.Policies[2])
+	}
+}
+
+func TestPopulateContractStatus_NoPoliciesNoConfig(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		},
+		RawYAML: []byte("test"),
+	}
+
+	r.populateContractStatus(pacto, lr)
+
+	if len(pacto.Status.Configurations) != 0 {
+		t.Fatalf("expected no configurations, got %d", len(pacto.Status.Configurations))
+	}
+	if len(pacto.Status.Policies) != 0 {
+		t.Fatalf("expected no policies, got %d", len(pacto.Status.Policies))
+	}
+}
+
+func TestPopulateContractStatus_LegacySingleConfig(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			Configuration: &contract.Configuration{
+				Schema: "schema.json",
+				Values: map[string]any{"key": "value"},
+			},
+		},
+		RawYAML: []byte("test"),
+	}
+
+	r.populateContractStatus(pacto, lr)
+
+	if len(pacto.Status.Configurations) != 1 {
+		t.Fatalf("expected 1 configuration from legacy form, got %d", len(pacto.Status.Configurations))
+	}
+	cfg := pacto.Status.Configurations[0]
+	if cfg.Name != "" {
+		t.Fatalf("expected empty name for legacy config, got %s", cfg.Name)
+	}
+	if !cfg.HasSchema {
+		t.Fatal("expected HasSchema=true")
+	}
+	if len(cfg.ValueKeys) != 1 {
+		t.Fatalf("expected 1 value key, got %d", len(cfg.ValueKeys))
+	}
+}
+
+func TestPopulateContractStatus_SinglePolicy(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service:  contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			Policies: []contract.PolicySource{{Schema: "single.json"}},
+		},
+		RawYAML: []byte("test"),
+	}
+
+	r.populateContractStatus(pacto, lr)
+
+	if len(pacto.Status.Policies) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(pacto.Status.Policies))
+	}
+	if !pacto.Status.Policies[0].HasSchema {
+		t.Fatal("expected HasSchema=true")
+	}
+	if pacto.Status.Policies[0].Schema != "single.json" {
+		t.Fatalf("expected single.json, got %s", pacto.Status.Policies[0].Schema)
 	}
 }
 
@@ -2628,7 +2809,7 @@ func TestResetDerivedStatus(t *testing.T) {
 			Endpoints:        &pactov1alpha1.EndpointsStatus{},
 			Runtime:          &pactov1alpha1.RuntimeInfo{},
 			ObservedRuntime:  &pactov1alpha1.ObservedRuntime{},
-			Policy:           &pactov1alpha1.PolicyInfo{Ref: "x"},
+			Policies:         []pactov1alpha1.PolicyInfo{{Ref: "x"}},
 			Conditions:       []metav1.Condition{{Type: "test", Status: metav1.ConditionTrue}},
 			LastReconciledAt: &now,
 		},
@@ -2663,8 +2844,8 @@ func TestResetDerivedStatus(t *testing.T) {
 	if pacto.Status.ObservedRuntime != nil {
 		t.Fatal("expected nil observed runtime")
 	}
-	if pacto.Status.Policy != nil {
-		t.Fatal("expected nil policy")
+	if len(pacto.Status.Policies) != 0 {
+		t.Fatal("expected empty policies")
 	}
 	if len(pacto.Status.Conditions) != 0 {
 		t.Fatal("expected empty conditions")

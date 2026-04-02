@@ -36,7 +36,10 @@ _Appears in:_
 
 
 
-ConfigurationInfo describes the contract's configuration section.
+ConfigurationInfo describes a single configuration scope from the contract.
+When the contract uses legacy top-level configuration fields (schema/ref/values),
+the operator emits a single entry with an empty Name.
+When the contract uses configuration.configs[], each named scope is a separate entry.
 
 
 
@@ -45,6 +48,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `name` _string_ | Name is the configuration scope name. Empty for legacy single-config contracts. |  | Optional: \{\} <br /> |
 | `hasSchema` _boolean_ | HasSchema indicates whether a JSON Schema file is bundled. |  |  |
 | `ref` _string_ | Ref is the external OCI reference for the configuration schema, if used. |  | Optional: \{\} <br /> |
 | `valueKeys` _string array_ | ValueKeys lists the declared configuration value keys. |  | Optional: \{\} <br /> |
@@ -348,9 +352,9 @@ _Appears in:_
 | `ports` _[PortStatus](#portstatus)_ | Ports describes the port comparison between contract and runtime. |  | Optional: \{\} <br /> |
 | `endpoints` _[EndpointsStatus](#endpointsstatus)_ | Endpoints describes the runtime probe results for declared health and metrics endpoints.<br />Only populated when the service exists and the contract declares health/metrics. |  | Optional: \{\} <br /> |
 | `interfaces` _[InterfaceInfo](#interfaceinfo) array_ | Interfaces lists the parsed interfaces from the contract. |  | Optional: \{\} <br /> |
-| `configuration` _[ConfigurationInfo](#configurationinfo)_ | Configuration describes the contract's configuration section. |  | Optional: \{\} <br /> |
+| `configurations` _[ConfigurationInfo](#configurationinfo) array_ | Configurations lists the contract's configuration scopes.<br />Legacy single-config contracts produce one entry with an empty Name.<br />Multi-config contracts (configuration.configs[]) produce one entry per named scope. |  | Optional: \{\} <br /> |
 | `dependencies` _[DependencyInfo](#dependencyinfo) array_ | Dependencies lists the declared dependencies from the contract. |  | Optional: \{\} <br /> |
-| `policy` _[PolicyInfo](#policyinfo)_ | Policy describes the contract's policy section. |  | Optional: \{\} <br /> |
+| `policies` _[PolicyInfo](#policyinfo) array_ | Policies lists the contract's policy sources.<br />Each entry represents a policy constraint (local schema or external ref). |  | Optional: \{\} <br /> |
 | `runtime` _[RuntimeInfo](#runtimeinfo)_ | Runtime describes the contract's runtime section (declared). |  | Optional: \{\} <br /> |
 | `observedRuntime` _[ObservedRuntime](#observedruntime)_ | ObservedRuntime describes the actual runtime state observed from the cluster.<br />Only populated when a target workload exists. |  | Optional: \{\} <br /> |
 | `scaling` _[ScalingInfo](#scalinginfo)_ | Scaling describes the contract's scaling section. |  | Optional: \{\} <br /> |
@@ -365,7 +369,9 @@ _Appears in:_
 
 
 
-PolicyInfo describes the contract's policy section.
+PolicyInfo describes a single policy source from the contract.
+Each policy provides either a local JSON Schema file or a reference to an
+external contract whose bundle contains the policy schema.
 
 
 
@@ -375,6 +381,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `hasSchema` _boolean_ | HasSchema indicates whether a policy schema file is bundled. |  |  |
+| `schema` _string_ | Schema is the bundle-relative path to the policy schema file, if local. |  | Optional: \{\} <br /> |
 | `ref` _string_ | Ref is the external OCI reference for the policy schema, if used. |  | Optional: \{\} <br /> |
 
 
