@@ -909,8 +909,14 @@ func TestPopulateContractStatus_NoPoliciesNoConfig(t *testing.T) {
 
 	r.populateContractStatus(pacto, lr)
 
+	if pacto.Status.Configurations == nil {
+		t.Fatal("expected non-nil empty configurations slice")
+	}
 	if len(pacto.Status.Configurations) != 0 {
 		t.Fatalf("expected no configurations, got %d", len(pacto.Status.Configurations))
+	}
+	if pacto.Status.Policies == nil {
+		t.Fatal("expected non-nil empty policies slice")
 	}
 	if len(pacto.Status.Policies) != 0 {
 		t.Fatalf("expected no policies, got %d", len(pacto.Status.Policies))
@@ -2809,6 +2815,7 @@ func TestResetDerivedStatus(t *testing.T) {
 			Endpoints:        &pactov1alpha1.EndpointsStatus{},
 			Runtime:          &pactov1alpha1.RuntimeInfo{},
 			ObservedRuntime:  &pactov1alpha1.ObservedRuntime{},
+			Configurations:   []pactov1alpha1.ConfigurationInfo{{Name: "app"}},
 			Policies:         []pactov1alpha1.PolicyInfo{{Ref: "x"}},
 			Conditions:       []metav1.Condition{{Type: "test", Status: metav1.ConditionTrue}},
 			LastReconciledAt: &now,
@@ -2844,8 +2851,11 @@ func TestResetDerivedStatus(t *testing.T) {
 	if pacto.Status.ObservedRuntime != nil {
 		t.Fatal("expected nil observed runtime")
 	}
-	if len(pacto.Status.Policies) != 0 {
-		t.Fatal("expected empty policies")
+	if pacto.Status.Configurations != nil {
+		t.Fatal("expected nil configurations after reset")
+	}
+	if pacto.Status.Policies != nil {
+		t.Fatal("expected nil policies after reset")
 	}
 	if len(pacto.Status.Conditions) != 0 {
 		t.Fatal("expected empty conditions")

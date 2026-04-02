@@ -492,8 +492,9 @@ type PactoStatus struct {
 	// +optional
 	Dependencies []DependencyInfo `json:"dependencies,omitempty"`
 
-	// Policies lists the contract's policy sources.
-	// Each entry represents a policy constraint (local schema or external ref).
+	// Policies lists the contract's declared policy sources (metadata only).
+	// Each entry describes a local schema or external ref; the operator does not
+	// resolve or enforce ref-based policies at runtime.
 	// +optional
 	Policies []PolicyInfo `json:"policies,omitempty"`
 

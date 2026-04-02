@@ -354,7 +354,7 @@ _Appears in:_
 | `interfaces` _[InterfaceInfo](#interfaceinfo) array_ | Interfaces lists the parsed interfaces from the contract. |  | Optional: \{\} <br /> |
 | `configurations` _[ConfigurationInfo](#configurationinfo) array_ | Configurations lists the contract's configuration scopes.<br />Legacy single-config contracts produce one entry with an empty Name.<br />Multi-config contracts (configuration.configs[]) produce one entry per named scope. |  | Optional: \{\} <br /> |
 | `dependencies` _[DependencyInfo](#dependencyinfo) array_ | Dependencies lists the declared dependencies from the contract. |  | Optional: \{\} <br /> |
-| `policies` _[PolicyInfo](#policyinfo) array_ | Policies lists the contract's policy sources.<br />Each entry represents a policy constraint (local schema or external ref). |  | Optional: \{\} <br /> |
+| `policies` _[PolicyInfo](#policyinfo) array_ | Policies lists the contract's declared policy sources (metadata only).<br />Each entry describes a local schema or external ref; the operator does not<br />resolve or enforce ref-based policies at runtime. |  | Optional: \{\} <br /> |
 | `runtime` _[RuntimeInfo](#runtimeinfo)_ | Runtime describes the contract's runtime section (declared). |  | Optional: \{\} <br /> |
 | `observedRuntime` _[ObservedRuntime](#observedruntime)_ | ObservedRuntime describes the actual runtime state observed from the cluster.<br />Only populated when a target workload exists. |  | Optional: \{\} <br /> |
 | `scaling` _[ScalingInfo](#scalinginfo)_ | Scaling describes the contract's scaling section. |  | Optional: \{\} <br /> |

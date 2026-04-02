@@ -294,8 +294,15 @@ func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pacto
 }
 
 // populateContractStatus extracts structured data from the parsed contract into status fields.
+// Policy sources are surfaced as metadata only — the operator does not resolve or enforce
+// ref-based policies. Local policy schemas bundled in the contract are enforced by
+// validation.Validate() during contract loading.
 func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr *loader.LoadResult) {
 	c := lr.Contract
+
+	// Initialize slices so JSON output is [] instead of null when empty.
+	pacto.Status.Configurations = []pactov1alpha1.ConfigurationInfo{}
+	pacto.Status.Policies = []pactov1alpha1.PolicyInfo{}
 
 	// Contract info
 	info := &pactov1alpha1.ContractInfo{
