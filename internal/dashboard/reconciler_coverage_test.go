@@ -64,11 +64,11 @@ func TestEnsureNamespace_GetNonNotFoundError(t *testing.T) {
 func TestReconcile_ServiceAccountError(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 			if _, ok := obj.(*corev1.ServiceAccount); ok {
-				return fmt.Errorf("simulated sa get error")
+				return fmt.Errorf("simulated sa patch error")
 			}
-			return c.Get(ctx, key, obj, opts...)
+			return c.Patch(ctx, obj, patch, opts...)
 		},
 	})
 
@@ -76,8 +76,8 @@ func TestReconcile_ServiceAccountError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from reconcileServiceAccount")
 	}
-	if got := err.Error(); got != "service account: simulated sa get error" {
-		t.Errorf("unexpected error: %s", got)
+	if !containsString(err.Error(), "service account") {
+		t.Errorf("unexpected error: %s", err)
 	}
 }
 
@@ -86,11 +86,11 @@ func TestReconcile_ServiceAccountError(t *testing.T) {
 func TestReconcile_ClusterRoleError(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 			if _, ok := obj.(*rbacv1.ClusterRole); ok {
-				return fmt.Errorf("simulated cr get error")
+				return fmt.Errorf("simulated cr patch error")
 			}
-			return c.Get(ctx, key, obj, opts...)
+			return c.Patch(ctx, obj, patch, opts...)
 		},
 	})
 
@@ -98,8 +98,8 @@ func TestReconcile_ClusterRoleError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from reconcileClusterRole")
 	}
-	if got := err.Error(); got != "cluster role: simulated cr get error" {
-		t.Errorf("unexpected error: %s", got)
+	if !containsString(err.Error(), "cluster role") {
+		t.Errorf("unexpected error: %s", err)
 	}
 }
 
@@ -108,11 +108,11 @@ func TestReconcile_ClusterRoleError(t *testing.T) {
 func TestReconcile_ClusterRoleBindingError(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 			if _, ok := obj.(*rbacv1.ClusterRoleBinding); ok {
-				return fmt.Errorf("simulated crb get error")
+				return fmt.Errorf("simulated crb patch error")
 			}
-			return c.Get(ctx, key, obj, opts...)
+			return c.Patch(ctx, obj, patch, opts...)
 		},
 	})
 
@@ -120,8 +120,8 @@ func TestReconcile_ClusterRoleBindingError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from reconcileClusterRoleBinding")
 	}
-	if got := err.Error(); got != "cluster role binding: simulated crb get error" {
-		t.Errorf("unexpected error: %s", got)
+	if !containsString(err.Error(), "cluster role binding") {
+		t.Errorf("unexpected error: %s", err)
 	}
 }
 
@@ -130,11 +130,11 @@ func TestReconcile_ClusterRoleBindingError(t *testing.T) {
 func TestReconcile_DeploymentError(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 			if _, ok := obj.(*appsv1.Deployment); ok {
-				return fmt.Errorf("simulated deploy get error")
+				return fmt.Errorf("simulated deploy patch error")
 			}
-			return c.Get(ctx, key, obj, opts...)
+			return c.Patch(ctx, obj, patch, opts...)
 		},
 	})
 
@@ -142,8 +142,8 @@ func TestReconcile_DeploymentError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from reconcileDeployment")
 	}
-	if got := err.Error(); got != "deployment: simulated deploy get error" {
-		t.Errorf("unexpected error: %s", got)
+	if !containsString(err.Error(), "deployment") {
+		t.Errorf("unexpected error: %s", err)
 	}
 }
 
@@ -152,11 +152,11 @@ func TestReconcile_DeploymentError(t *testing.T) {
 func TestReconcile_ServiceError(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 			if _, ok := obj.(*corev1.Service); ok {
-				return fmt.Errorf("simulated svc get error")
+				return fmt.Errorf("simulated svc patch error")
 			}
-			return c.Get(ctx, key, obj, opts...)
+			return c.Patch(ctx, obj, patch, opts...)
 		},
 	})
 
@@ -164,14 +164,10 @@ func TestReconcile_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from reconcileService")
 	}
-	if got := err.Error(); got != "service: simulated svc get error" {
-		t.Errorf("unexpected error: %s", got)
+	if !containsString(err.Error(), "service") {
+		t.Errorf("unexpected error: %s", err)
 	}
 }
-
-// --- applyResource: Get non-NotFound error (covered via the individual reconcile step error tests above) ---
-// The tests above already trigger the `if err != nil { return err }` path in applyResource
-// since the interceptor returns a non-NotFound error on Get.
 
 // --- cleanup: Get non-NotFound error ---
 

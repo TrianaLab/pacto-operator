@@ -10,7 +10,6 @@ package dashboard
 import (
 	"context"
 	"fmt"
-	"maps"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -38,11 +37,11 @@ type Reconciler struct {
 }
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create
-// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;delete
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;delete
-// +kubebuilder:rbac:groups="",resources=services,verbs=create;update;delete
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile ensures dashboard resources match the desired state.
 // When the feature is enabled, it creates/updates all dashboard resources.
@@ -144,18 +143,15 @@ func (r *Reconciler) ensureNamespace(ctx context.Context) error {
 }
 
 func (r *Reconciler) reconcileServiceAccount(ctx context.Context) error {
-	desired := BuildServiceAccount(r.Config)
-	return r.applyResource(ctx, desired, &corev1.ServiceAccount{})
+	return r.applyResource(ctx, BuildServiceAccount(r.Config))
 }
 
 func (r *Reconciler) reconcileClusterRole(ctx context.Context) error {
-	desired := BuildClusterRole()
-	return r.applyResource(ctx, desired, &rbacv1.ClusterRole{})
+	return r.applyResource(ctx, BuildClusterRole())
 }
 
 func (r *Reconciler) reconcileClusterRoleBinding(ctx context.Context) error {
-	desired := BuildClusterRoleBinding(r.Config)
-	return r.applyResource(ctx, desired, &rbacv1.ClusterRoleBinding{})
+	return r.applyResource(ctx, BuildClusterRoleBinding(r.Config))
 }
 
 // reconcileOCICredentials reads the configured OCI secrets, merges their credentials,
@@ -206,48 +202,29 @@ func (r *Reconciler) reconcileOCICredentials(ctx context.Context) error {
 			corev1.DockerConfigJsonKey: merged,
 		},
 	}
-	return r.applyResource(ctx, desired, &corev1.Secret{})
+	return r.applyResource(ctx, desired)
 }
 
 func (r *Reconciler) reconcileDeployment(ctx context.Context) error {
-	desired := BuildDeployment(r.Config)
-	return r.applyResource(ctx, desired, &appsv1.Deployment{})
+	return r.applyResource(ctx, BuildDeployment(r.Config))
 }
 
 func (r *Reconciler) reconcileService(ctx context.Context) error {
-	desired := BuildService(r.Config)
-	return r.applyResource(ctx, desired, &corev1.Service{})
+	return r.applyResource(ctx, BuildService(r.Config))
 }
 
-// applyResource creates or updates a resource, preserving the resource version for updates.
-// It merges labels and annotations so that external controllers (e.g. ArgoCD) can add
-// their own metadata without being wiped on every reconciliation.
-func (r *Reconciler) applyResource(ctx context.Context, desired client.Object, existing client.Object) error {
-	key := client.ObjectKeyFromObject(desired)
-	err := r.Get(ctx, key, existing)
-	if apierrors.IsNotFound(err) {
-		return r.Create(ctx, desired)
-	}
+// applyResource uses Server-Side Apply to create or update a resource.
+// SSA is conflict-free: it avoids the Get+Update race that can cause missed
+// updates (e.g. when the operator image changes across upgrades).
+// External metadata from other controllers (e.g. ArgoCD) is preserved
+// automatically because SSA only manages fields owned by our field manager.
+func (r *Reconciler) applyResource(ctx context.Context, desired client.Object) error {
+	gvks, _, err := r.Scheme.ObjectKinds(desired)
 	if err != nil {
-		return err
+		return fmt.Errorf("looking up GVK: %w", err)
 	}
-
-	// Preserve resource version for update
-	desired.SetResourceVersion(existing.GetResourceVersion())
-	// Preserve UID to avoid issues
-	desired.SetUID(existing.GetUID())
-	// Merge labels and annotations so external metadata (e.g. ArgoCD tracking) is preserved
-	desired.SetLabels(mergeMap(existing.GetLabels(), desired.GetLabels()))
-	desired.SetAnnotations(mergeMap(existing.GetAnnotations(), desired.GetAnnotations()))
-	return r.Update(ctx, desired)
-}
-
-// mergeMap returns a new map with all entries from base, overridden by entries from overlay.
-func mergeMap(base, overlay map[string]string) map[string]string {
-	merged := make(map[string]string, len(base)+len(overlay))
-	maps.Copy(merged, base)
-	maps.Copy(merged, overlay)
-	return merged
+	desired.GetObjectKind().SetGroupVersionKind(gvks[0])
+	return r.Patch(ctx, desired, client.Apply, client.FieldOwner(FieldManager), client.ForceOwnership)
 }
 
 // cleanup deletes all dashboard resources owned by the operator.

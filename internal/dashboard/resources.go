@@ -32,6 +32,9 @@ const (
 	ManagedByValue = "pacto-operator"
 	ComponentValue = "dashboard"
 
+	// FieldManager is the server-side apply field manager name for dashboard resources.
+	FieldManager = "pacto-operator-dashboard"
+
 	// Dashboard defaults
 	DashboardPort = 3000
 	HealthPath    = "/health"
