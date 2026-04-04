@@ -36,10 +36,7 @@ _Appears in:_
 
 
 
-ConfigurationInfo describes a single configuration scope from the contract.
-When the contract uses legacy top-level configuration fields (schema/ref/values),
-the operator emits a single entry with an empty Name.
-When the contract uses configuration.configs[], each named scope is a separate entry.
+ConfigurationInfo describes a single named configuration scope from the contract.
 
 
 
@@ -48,7 +45,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is the configuration scope name. Empty for legacy single-config contracts. |  | Optional: \{\} <br /> |
+| `name` _string_ | Name is the configuration scope name (required, unique within contract). |  |  |
 | `hasSchema` _boolean_ | HasSchema indicates whether a JSON Schema file is bundled. |  |  |
 | `ref` _string_ | Ref is the external OCI reference for the configuration schema, if used. |  | Optional: \{\} <br /> |
 | `valueKeys` _string array_ | ValueKeys lists the declared configuration value keys. |  | Optional: \{\} <br /> |
@@ -107,6 +104,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `name` _string_ | Name is the dependency name (required, unique within contract). |  |  |
 | `ref` _string_ | Ref is the dependency reference (OCI URI). |  |  |
 | `required` _boolean_ | Required indicates whether this dependency is mandatory. |  |  |
 | `compatibility` _string_ | Compatibility is the semver constraint for the dependency. |  | Optional: \{\} <br /> |
@@ -352,7 +350,7 @@ _Appears in:_
 | `ports` _[PortStatus](#portstatus)_ | Ports describes the port comparison between contract and runtime. |  | Optional: \{\} <br /> |
 | `endpoints` _[EndpointsStatus](#endpointsstatus)_ | Endpoints describes the runtime probe results for declared health and metrics endpoints.<br />Only populated when the service exists and the contract declares health/metrics. |  | Optional: \{\} <br /> |
 | `interfaces` _[InterfaceInfo](#interfaceinfo) array_ | Interfaces lists the parsed interfaces from the contract. |  | Optional: \{\} <br /> |
-| `configurations` _[ConfigurationInfo](#configurationinfo) array_ | Configurations lists the contract's configuration scopes.<br />Legacy single-config contracts produce one entry with an empty Name.<br />Multi-config contracts (configuration.configs[]) produce one entry per named scope. |  | Optional: \{\} <br /> |
+| `configurations` _[ConfigurationInfo](#configurationinfo) array_ | Configurations lists the contract's named configuration scopes.<br />Each entry corresponds to one configurations[] entry in the contract. |  | Optional: \{\} <br /> |
 | `dependencies` _[DependencyInfo](#dependencyinfo) array_ | Dependencies lists the declared dependencies from the contract. |  | Optional: \{\} <br /> |
 | `policies` _[PolicyInfo](#policyinfo) array_ | Policies lists the contract's declared policy sources (metadata only).<br />Each entry describes a local schema or external ref; the operator does not<br />resolve or enforce ref-based policies at runtime. |  | Optional: \{\} <br /> |
 | `runtime` _[RuntimeInfo](#runtimeinfo)_ | Runtime describes the contract's runtime section (declared). |  | Optional: \{\} <br /> |
@@ -369,7 +367,7 @@ _Appears in:_
 
 
 
-PolicyInfo describes a single policy source from the contract.
+PolicyInfo describes a single named policy source from the contract.
 Each policy provides either a local JSON Schema file or a reference to an
 external contract whose bundle contains the policy schema.
 
@@ -380,6 +378,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `name` _string_ | Name is the policy name (required, unique within contract). |  |  |
 | `hasSchema` _boolean_ | HasSchema indicates whether a policy schema file is bundled. |  |  |
 | `schema` _string_ | Schema is the bundle-relative path to the policy schema file, if local. |  | Optional: \{\} <br /> |
 | `ref` _string_ | Ref is the external OCI reference for the policy schema, if used. |  | Optional: \{\} <br /> |
@@ -453,6 +452,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `oci` _string_ | OCI is the fully resolved OCI reference (including tag/digest).<br />Example: ghcr.io/org/service-pacto:1.2.0 |  | Optional: \{\} <br /> |
+| `digest` _string_ | Digest is the OCI manifest digest (sha256:...) at the time of resolution.<br />Used to detect force-pushes (tag overwrites) on the registry. |  | Optional: \{\} <br /> |
 | `inline` _boolean_ | Inline indicates the contract was provided inline (no external source). |  | Optional: \{\} <br /> |
 
 

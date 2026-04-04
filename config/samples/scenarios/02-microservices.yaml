@@ -39,19 +39,22 @@ spec:
           type: event
           visibility: internal
           contract: openapi.yaml
-      configuration:
-        schema: config-schema.json
-        values:
-          DB_HOST: orders-db.internal
-          DB_PORT: 5432
-          DB_PASSWORD: secret://vault/order-service/db-password
-          BROKER_URL: amqp://rabbitmq:5672
-          MAX_ORDER_ITEMS: 50
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            DB_HOST: orders-db.internal
+            DB_PORT: 5432
+            DB_PASSWORD: secret://vault/order-service/db-password
+            BROKER_URL: amqp://rabbitmq:5672
+            MAX_ORDER_ITEMS: 50
       dependencies:
-        - ref: oci://ghcr.io/acme/payment-service-pacto
+        - name: payment-service
+          ref: oci://ghcr.io/acme/payment-service-pacto
           required: true
           compatibility: "^2.0.0"
-        - ref: oci://ghcr.io/acme/notification-worker-pacto
+        - name: notification-worker
+          ref: oci://ghcr.io/acme/notification-worker-pacto
           required: false
           compatibility: ">=1.0.0"
       runtime:
@@ -107,14 +110,16 @@ spec:
           type: event
           visibility: internal
           contract: openapi.yaml
-      configuration:
-        schema: config-schema.json
-        values:
-          STRIPE_API_KEY: secret://vault/payment-service/stripe-api-key
-          WEBHOOK_SECRET: secret://vault/payment-service/webhook-secret
-          IDEMPOTENCY_TTL_HOURS: 48
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            STRIPE_API_KEY: secret://vault/payment-service/stripe-api-key
+            WEBHOOK_SECRET: secret://vault/payment-service/webhook-secret
+            IDEMPOTENCY_TTL_HOURS: 48
       dependencies:
-        - ref: oci://ghcr.io/acme/payment-gateway-pacto
+        - name: payment-gateway
+          ref: oci://ghcr.io/acme/payment-gateway-pacto
           required: true
           compatibility: "^4.0.0"
       runtime:
@@ -170,15 +175,17 @@ spec:
           type: http
           port: 8080
           visibility: internal
-      configuration:
-        schema: config-schema.json
-        values:
-          DB_HOST: user-db.internal
-          DB_PORT: 5432
-          DB_PASSWORD: secret://vault/user-service/db-password
-          CACHE_TTL_SECONDS: 300
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            DB_HOST: user-db.internal
+            DB_PORT: 5432
+            DB_PASSWORD: secret://vault/user-service/db-password
+            CACHE_TTL_SECONDS: 300
       dependencies:
-        - ref: oci://ghcr.io/acme/postgresql-pacto
+        - name: postgresql
+          ref: oci://ghcr.io/acme/postgresql-pacto
           required: true
           compatibility: "^16.0.0"
       runtime:
@@ -228,17 +235,20 @@ spec:
           type: http
           port: 3000
           visibility: public
-      configuration:
-        schema: config-schema.json
-        values:
-          API_URL: http://order-service:8080
-          USER_API_URL: grpc://user-service:9090
-          SESSION_SECRET: secret://vault/frontend/session-secret
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            API_URL: http://order-service:8080
+            USER_API_URL: grpc://user-service:9090
+            SESSION_SECRET: secret://vault/frontend/session-secret
       dependencies:
-        - ref: oci://ghcr.io/acme/order-service-pacto
+        - name: order-service
+          ref: oci://ghcr.io/acme/order-service-pacto
           required: true
           compatibility: "^1.0.0"
-        - ref: oci://ghcr.io/acme/user-service-pacto
+        - name: user-service
+          ref: oci://ghcr.io/acme/user-service-pacto
           required: true
           compatibility: "^3.0.0"
       runtime:

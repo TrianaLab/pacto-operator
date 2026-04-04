@@ -215,14 +215,10 @@ type InterfaceInfo struct {
 	HasContractFile bool `json:"hasContractFile"`
 }
 
-// ConfigurationInfo describes a single configuration scope from the contract.
-// When the contract uses legacy top-level configuration fields (schema/ref/values),
-// the operator emits a single entry with an empty Name.
-// When the contract uses configuration.configs[], each named scope is a separate entry.
+// ConfigurationInfo describes a single named configuration scope from the contract.
 type ConfigurationInfo struct {
-	// Name is the configuration scope name. Empty for legacy single-config contracts.
-	// +optional
-	Name string `json:"name,omitempty"`
+	// Name is the configuration scope name (required, unique within contract).
+	Name string `json:"name"`
 
 	// HasSchema indicates whether a JSON Schema file is bundled.
 	HasSchema bool `json:"hasSchema"`
@@ -242,6 +238,9 @@ type ConfigurationInfo struct {
 
 // DependencyInfo describes a declared dependency.
 type DependencyInfo struct {
+	// Name is the dependency name (required, unique within contract).
+	Name string `json:"name"`
+
 	// Ref is the dependency reference (OCI URI).
 	Ref string `json:"ref"`
 
@@ -253,10 +252,13 @@ type DependencyInfo struct {
 	Compatibility string `json:"compatibility,omitempty"`
 }
 
-// PolicyInfo describes a single policy source from the contract.
+// PolicyInfo describes a single named policy source from the contract.
 // Each policy provides either a local JSON Schema file or a reference to an
 // external contract whose bundle contains the policy schema.
 type PolicyInfo struct {
+	// Name is the policy name (required, unique within contract).
+	Name string `json:"name"`
+
 	// HasSchema indicates whether a policy schema file is bundled.
 	HasSchema bool `json:"hasSchema"`
 
@@ -482,9 +484,8 @@ type PactoStatus struct {
 	// +optional
 	Interfaces []InterfaceInfo `json:"interfaces,omitempty"`
 
-	// Configurations lists the contract's configuration scopes.
-	// Legacy single-config contracts produce one entry with an empty Name.
-	// Multi-config contracts (configuration.configs[]) produce one entry per named scope.
+	// Configurations lists the contract's named configuration scopes.
+	// Each entry corresponds to one configurations[] entry in the contract.
 	// +optional
 	Configurations []ConfigurationInfo `json:"configurations,omitempty"`
 

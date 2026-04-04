@@ -348,6 +348,89 @@ service:
 	}
 }
 
+// --- Digest tracking ---
+
+func TestOCI_Pull_DigestPopulated(t *testing.T) {
+	env := newTestOCIEnv(t)
+	pushDigest := env.pushBundle(t, "org/digest-svc", "1.0.0", newBundle("digest-svc", "1.0.0"))
+
+	result, err := env.loader.Load(context.Background(), env.ref("org/digest-svc", "1.0.0"), "", nil)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if result.ResolvedDigest == "" {
+		t.Fatal("expected ResolvedDigest to be populated")
+	}
+	if !strings.HasPrefix(result.ResolvedDigest, "sha256:") {
+		t.Errorf("expected digest to start with sha256:, got %s", result.ResolvedDigest)
+	}
+	if result.ResolvedDigest != pushDigest {
+		t.Errorf("expected digest %s from push, got %s", pushDigest, result.ResolvedDigest)
+	}
+}
+
+func TestOCI_Pull_ForcePushChangesDigest(t *testing.T) {
+	env := newTestOCIEnv(t)
+
+	// Push v1 content under tag 1.0.0
+	digest1 := env.pushBundle(t, "org/force-push-svc", "1.0.0", newBundle("force-push-svc", "1.0.0"))
+
+	// Pull and verify initial digest
+	result1, err := env.loader.Load(context.Background(), env.ref("org/force-push-svc", "1.0.0"), "", nil)
+	if err != nil {
+		t.Fatalf("first Load failed: %v", err)
+	}
+	if result1.ResolvedDigest != digest1 {
+		t.Fatalf("first pull digest mismatch: push=%s pull=%s", digest1, result1.ResolvedDigest)
+	}
+
+	// Force-push: overwrite the same tag with different content
+	differentBundle := newBundle("force-push-svc", "1.0.0-modified")
+	digest2 := env.pushBundle(t, "org/force-push-svc", "1.0.0", differentBundle)
+
+	if digest1 == digest2 {
+		t.Fatal("expected different digests after force-push, got same")
+	}
+
+	// Create a fresh loader to avoid cache
+	freshLoader := loader.New()
+	result2, err := freshLoader.Load(context.Background(), env.ref("org/force-push-svc", "1.0.0"), "", nil)
+	if err != nil {
+		t.Fatalf("second Load failed: %v", err)
+	}
+	if result2.ResolvedDigest != digest2 {
+		t.Fatalf("second pull digest mismatch: push=%s pull=%s", digest2, result2.ResolvedDigest)
+	}
+
+	// The key assertion: digest changed after force-push
+	if result1.ResolvedDigest == result2.ResolvedDigest {
+		t.Fatal("expected different digests after force-push, but they match")
+	}
+
+	t.Logf("Force-push detected: old=%s new=%s", result1.ResolvedDigest, result2.ResolvedDigest)
+}
+
+func TestOCI_Pull_InlineHasNoDigest(t *testing.T) {
+	env := newTestOCIEnv(t)
+	_ = env // just to use the env setup
+
+	inlineContract := `pactoVersion: "1.0"
+service:
+  name: inline-svc
+  version: 1.0.0
+`
+
+	result, err := env.loader.Load(context.Background(), "", inlineContract, nil)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if result.ResolvedDigest != "" {
+		t.Errorf("expected empty ResolvedDigest for inline, got %s", result.ResolvedDigest)
+	}
+}
+
 // --- RawYAML populated ---
 
 func TestOCI_Pull_RawYAMLPopulated(t *testing.T) {

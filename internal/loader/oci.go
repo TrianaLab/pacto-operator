@@ -60,6 +60,14 @@ func (p *OCIPuller) Pull(ctx context.Context, ref string, authOverride *authn.Au
 		return nil, fmt.Errorf("failed to pull %q: %w", resolvedRef, err)
 	}
 
+	// Resolve the OCI manifest digest for immutable identity tracking.
+	var digest string
+	if d, resolveErr := client.Resolve(ctx, resolvedRef); resolveErr == nil {
+		digest = d
+	} else {
+		slog.Warn("Failed to resolve OCI digest", "ref", resolvedRef, "error", resolveErr)
+	}
+
 	// Populate RawYAML from bundle FS if the client didn't set it
 	rawYAML := bundle.RawYAML
 	if len(rawYAML) == 0 && bundle.FS != nil {
@@ -69,10 +77,11 @@ func (p *OCIPuller) Pull(ctx context.Context, ref string, authOverride *authn.Au
 	}
 
 	return &LoadResult{
-		Contract:    bundle.Contract,
-		RawYAML:     rawYAML,
-		BundleFS:    bundle.FS,
-		ResolvedRef: resolvedRef,
+		Contract:       bundle.Contract,
+		RawYAML:        rawYAML,
+		BundleFS:       bundle.FS,
+		ResolvedRef:    resolvedRef,
+		ResolvedDigest: digest,
 	}, nil
 }
 

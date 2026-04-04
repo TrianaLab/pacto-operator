@@ -334,29 +334,28 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		pacto.Status.Interfaces = append(pacto.Status.Interfaces, ii)
 	}
 
-	// Configurations (supports both legacy single-config and multi-config)
-	if c.Configuration != nil {
-		for _, eff := range c.Configuration.EffectiveConfigs() {
-			ci := pactov1alpha1.ConfigurationInfo{
-				Name:      eff.Name,
-				HasSchema: eff.Schema != "",
-				Ref:       eff.Ref,
-			}
-			for k, v := range eff.Values {
-				ci.ValueKeys = append(ci.ValueKeys, k)
-				if s, ok := v.(string); ok && strings.HasPrefix(s, "secret://") {
-					ci.SecretKeys = append(ci.SecretKeys, k)
-				}
-			}
-			sort.Strings(ci.ValueKeys)
-			sort.Strings(ci.SecretKeys)
-			pacto.Status.Configurations = append(pacto.Status.Configurations, ci)
+	// Configurations
+	for _, cfg := range c.Configurations {
+		ci := pactov1alpha1.ConfigurationInfo{
+			Name:      cfg.Name,
+			HasSchema: cfg.Schema != "",
+			Ref:       cfg.Ref,
 		}
+		for k, v := range cfg.Values {
+			ci.ValueKeys = append(ci.ValueKeys, k)
+			if s, ok := v.(string); ok && strings.HasPrefix(s, "secret://") {
+				ci.SecretKeys = append(ci.SecretKeys, k)
+			}
+		}
+		sort.Strings(ci.ValueKeys)
+		sort.Strings(ci.SecretKeys)
+		pacto.Status.Configurations = append(pacto.Status.Configurations, ci)
 	}
 
 	// Dependencies
 	for _, dep := range c.Dependencies {
 		pacto.Status.Dependencies = append(pacto.Status.Dependencies, pactov1alpha1.DependencyInfo{
+			Name:          dep.Name,
 			Ref:           dep.Ref,
 			Required:      dep.Required,
 			Compatibility: dep.Compatibility,
@@ -366,6 +365,7 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 	// Policies
 	for _, pol := range c.Policies {
 		pacto.Status.Policies = append(pacto.Status.Policies, pactov1alpha1.PolicyInfo{
+			Name:      pol.Name,
 			HasSchema: pol.Schema != "",
 			Schema:    pol.Schema,
 			Ref:       pol.Ref,
@@ -801,8 +801,10 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 	source := pactov1alpha1.RevisionSource{}
 	if loadResult.ResolvedRef != "" {
 		source.OCI = loadResult.ResolvedRef
+		source.Digest = loadResult.ResolvedDigest
 	} else if pacto.Spec.ContractRef.OCI != "" {
 		source.OCI = pacto.Spec.ContractRef.OCI
+		source.Digest = loadResult.ResolvedDigest
 	} else {
 		source.Inline = true
 	}
@@ -876,7 +878,42 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 		); listErr != nil {
 			log.V(1).Info("Failed to list revisions for tag", "tag", tag, "error", listErr)
 			continue
-		} else if len(revList.Items) > 0 {
+		}
+
+		// If a revision exists for this tag, check whether the digest still matches.
+		// A mismatch means the tag was force-pushed (overwritten) on the registry.
+		if len(revList.Items) > 0 {
+			existing := revList.Items[0]
+			storedDigest := existing.Spec.Source.Digest
+			if storedDigest == "" {
+				// Revision predates digest tracking — skip drift check.
+				continue
+			}
+
+			loadResult, loadErr := r.Loader.Load(ctx, taggedRef, "", ociAuth)
+			if loadErr != nil {
+				log.V(1).Info("Skipping digest check: failed to load", "tag", tag, "error", loadErr)
+				continue
+			}
+
+			if loadResult.ResolvedDigest == storedDigest {
+				continue // Digest matches — tag was not overwritten.
+			}
+
+			log.Info("Detected force-push: OCI digest changed for tag",
+				"tag", tag,
+				"oldDigest", storedDigest,
+				"newDigest", loadResult.ResolvedDigest,
+				"oldRevision", existing.Name)
+			r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "TagOverwritten",
+				"Tag %s was force-pushed (digest changed from %s to %s)", tag, storedDigest[:12], loadResult.ResolvedDigest[:12])
+
+			revName, revErr := r.ensureRevision(ctx, pacto, loadResult)
+			if revErr != nil {
+				log.V(1).Info("Failed to create revision for force-pushed tag", "tag", tag, "error", revErr)
+				continue
+			}
+			log.Info("Created new revision for force-pushed tag", "tag", tag, "revision", revName)
 			continue
 		}
 

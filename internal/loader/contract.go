@@ -24,10 +24,11 @@ import (
 
 // LoadResult contains the parsed contract, raw bytes, and bundle filesystem.
 type LoadResult struct {
-	Contract    *contract.Contract
-	RawYAML     []byte
-	BundleFS    fs.FS
-	ResolvedRef string // The resolved OCI reference (with tag), empty for inline
+	Contract       *contract.Contract
+	RawYAML        []byte
+	BundleFS       fs.FS
+	ResolvedRef    string // The resolved OCI reference (with tag), empty for inline
+	ResolvedDigest string // The OCI manifest digest (sha256:...), empty for inline
 }
 
 type cacheEntry struct {
