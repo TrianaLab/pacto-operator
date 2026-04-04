@@ -113,7 +113,7 @@ service:
   version: ""
 `
 
-	// contractWithConfig includes a legacy single configuration section.
+	// contractWithConfig includes a single named configuration.
 	contractWithConfig = `
 pactoVersion: "1.0"
 service:
@@ -124,11 +124,12 @@ interfaces:
   - name: http-api
     type: http
     port: 8080
-configuration:
-  schema: config-schema.json
-  values:
-    db_host: localhost
-    api_key: "secret://vault/key"
+configurations:
+  - name: default
+    schema: config-schema.json
+    values:
+      db_host: localhost
+      api_key: "secret://vault/key"
 `
 
 	// contractWithMultiConfig includes multiple named configuration scopes.
@@ -142,14 +143,13 @@ interfaces:
   - name: http-api
     type: http
     port: 8080
-configuration:
-  configs:
-    - name: app
-      schema: app-config.json
-      values:
-        port: 8080
-    - name: monitoring
-      ref: "oci://ghcr.io/acme/monitoring-config"
+configurations:
+  - name: app
+    schema: app-config.json
+    values:
+      port: 8080
+  - name: monitoring
+    ref: "oci://ghcr.io/acme/monitoring-config"
 `
 
 	// contractWithPolicies includes multiple policies.
@@ -164,8 +164,10 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - schema: security-policy.json
-  - ref: "oci://org-policies/baseline"
+  - name: security
+    schema: security-policy.json
+  - name: baseline
+    ref: "oci://org-policies/baseline"
 `
 
 	// contractWithSinglePolicy includes a single local-schema policy.
@@ -180,7 +182,8 @@ interfaces:
     type: http
     port: 8080
 policies:
-  - schema: ops-policy.json
+  - name: ops
+    schema: ops-policy.json
 `
 )
 
@@ -540,8 +543,8 @@ var _ = Describe("Operator", Ordered, func() {
 	// ── F. Configuration and Policy Status ────────────────────────────────
 
 	Context("Configuration and Policy Status", Ordered, func() {
-		It("should surface legacy single-config in status.configurations", func() {
-			name := "e2e-legacy-config"
+		It("should surface named config in status.configurations", func() {
+			name := "e2e-named-config"
 			applyPacto(name, testNamespace, contractWithConfig, "", nil)
 			DeferCleanup(deletePacto, name, testNamespace)
 
@@ -549,7 +552,8 @@ var _ = Describe("Operator", Ordered, func() {
 				status := getPactoStatus(g, name, testNamespace)
 				g.Expect(status.ContractStatus).To(Equal("Reference"))
 				g.Expect(status.Configurations).To(HaveLen(1),
-					"legacy single-config should produce one entry")
+					"single named config should produce one entry")
+				g.Expect(status.Configurations[0].Name).To(Equal("default"))
 				g.Expect(status.Configurations[0].HasSchema).To(BeTrue())
 				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("db_host"))
 				g.Expect(status.Configurations[0].SecretKeys).To(ContainElement("api_key"))
@@ -583,7 +587,9 @@ var _ = Describe("Operator", Ordered, func() {
 				// but policies metadata should still be surfaced in status.
 				g.Expect(status.Policies).To(HaveLen(2),
 					"should have two policy entries")
+				g.Expect(status.Policies[0].Name).To(Equal("security"))
 				g.Expect(status.Policies[0].HasSchema).To(BeTrue())
+				g.Expect(status.Policies[1].Name).To(Equal("baseline"))
 				g.Expect(status.Policies[1].Ref).To(Equal("oci://org-policies/baseline"))
 			}, 60*time.Second, 2*time.Second).Should(Succeed())
 		})
@@ -699,6 +705,7 @@ type configurationInfo struct {
 }
 
 type policyInfo struct {
+	Name      string `json:"name"`
 	HasSchema bool   `json:"hasSchema"`
 	Schema    string `json:"schema"`
 	Ref       string `json:"ref"`

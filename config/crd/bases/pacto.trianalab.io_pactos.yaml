@@ -190,23 +190,19 @@ spec:
                 x-kubernetes-list-type: map
               configurations:
                 description: |-
-                  Configurations lists the contract's configuration scopes.
-                  Legacy single-config contracts produce one entry with an empty Name.
-                  Multi-config contracts (configuration.configs[]) produce one entry per named scope.
+                  Configurations lists the contract's named configuration scopes.
+                  Each entry corresponds to one configurations[] entry in the contract.
                 items:
-                  description: |-
-                    ConfigurationInfo describes a single configuration scope from the contract.
-                    When the contract uses legacy top-level configuration fields (schema/ref/values),
-                    the operator emits a single entry with an empty Name.
-                    When the contract uses configuration.configs[], each named scope is a separate entry.
+                  description: ConfigurationInfo describes a single named configuration
+                    scope from the contract.
                   properties:
                     hasSchema:
                       description: HasSchema indicates whether a JSON Schema file
                         is bundled.
                       type: boolean
                     name:
-                      description: Name is the configuration scope name. Empty for
-                        legacy single-config contracts.
+                      description: Name is the configuration scope name (required,
+                        unique within contract).
                       type: string
                     ref:
                       description: Ref is the external OCI reference for the configuration
@@ -226,6 +222,7 @@ spec:
                       type: array
                   required:
                   - hasSchema
+                  - name
                   type: object
                 type: array
               contract:
@@ -321,6 +318,10 @@ spec:
                       description: Compatibility is the semver constraint for the
                         dependency.
                       type: string
+                    name:
+                      description: Name is the dependency name (required, unique within
+                        contract).
+                      type: string
                     ref:
                       description: Ref is the dependency reference (OCI URI).
                       type: string
@@ -328,6 +329,7 @@ spec:
                       description: Required indicates whether this dependency is mandatory.
                       type: boolean
                   required:
+                  - name
                   - ref
                   - required
                   type: object
@@ -497,7 +499,7 @@ spec:
                   resolve or enforce ref-based policies at runtime.
                 items:
                   description: |-
-                    PolicyInfo describes a single policy source from the contract.
+                    PolicyInfo describes a single named policy source from the contract.
                     Each policy provides either a local JSON Schema file or a reference to an
                     external contract whose bundle contains the policy schema.
                   properties:
@@ -505,6 +507,10 @@ spec:
                       description: HasSchema indicates whether a policy schema file
                         is bundled.
                       type: boolean
+                    name:
+                      description: Name is the policy name (required, unique within
+                        contract).
+                      type: string
                     ref:
                       description: Ref is the external OCI reference for the policy
                         schema, if used.
@@ -515,6 +521,7 @@ spec:
                       type: string
                   required:
                   - hasSchema
+                  - name
                   type: object
                 type: array
               ports:

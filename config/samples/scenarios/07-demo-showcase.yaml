@@ -61,12 +61,13 @@ spec:
           type: http
           port: 9187
           visibility: internal
-      configuration:
-        schema: config-schema.json
-        values:
-          POSTGRES_DB: acme
-          POSTGRES_MAX_CONNECTIONS: 200
-          POSTGRES_PASSWORD: secret://vault/postgresql/password
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            POSTGRES_DB: acme
+            POSTGRES_MAX_CONNECTIONS: 200
+            POSTGRES_PASSWORD: secret://vault/postgresql/password
       runtime:
         workload: service
         state:
@@ -124,12 +125,13 @@ spec:
           type: http
           port: 9121
           visibility: internal
-      configuration:
-        schema: config-schema.json
-        values:
-          REDIS_MAXMEMORY: 256mb
-          REDIS_MAXMEMORY_POLICY: allkeys-lru
-          REDIS_PASSWORD: secret://vault/redis/password
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            REDIS_MAXMEMORY: 256mb
+            REDIS_MAXMEMORY_POLICY: allkeys-lru
+            REDIS_PASSWORD: secret://vault/redis/password
       runtime:
         workload: service
         state:
@@ -180,12 +182,13 @@ spec:
           type: http
           port: 443
           visibility: public
-      configuration:
-        schema: config-schema.json
-        values:
-          BASE_URL: https://api.stripe.com/v1
-          WEBHOOK_ENDPOINT: https://payments.acme.io/webhooks/stripe
-          API_VERSION: "2024-12-18"
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            BASE_URL: https://api.stripe.com/v1
+            WEBHOOK_ENDPOINT: https://payments.acme.io/webhooks/stripe
+            API_VERSION: "2024-12-18"
       metadata:
         description: "External payment provider. Processes charges, refunds, and payment intents."
         layer: external
@@ -223,17 +226,19 @@ spec:
           port: 8080
           visibility: internal
           contract: openapi.yaml
-      configuration:
-        schema: config-schema.json
-        values:
-          JWT_ISSUER: https://auth.acme.io
-          JWT_EXPIRY_SECONDS: 3600
-          REFRESH_TOKEN_EXPIRY_DAYS: 30
-          REDIS_URL: redis://redis:6379/0
-          JWT_SECRET: secret://vault/auth-service/jwt-secret
-          OAUTH_CLIENT_SECRET: secret://vault/auth-service/oauth-secret
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            JWT_ISSUER: https://auth.acme.io
+            JWT_EXPIRY_SECONDS: 3600
+            REFRESH_TOKEN_EXPIRY_DAYS: 30
+            REDIS_URL: redis://redis:6379/0
+            JWT_SECRET: secret://vault/auth-service/jwt-secret
+            OAUTH_CLIENT_SECRET: secret://vault/auth-service/oauth-secret
       dependencies:
-        - ref: oci://ghcr.io/acme/redis-pacto
+        - name: redis
+          ref: oci://ghcr.io/acme/redis-pacto
           required: true
           compatibility: "^7.0.0"
       runtime:
@@ -291,15 +296,17 @@ spec:
         - name: order-events
           type: event
           visibility: internal
-      configuration:
-        schema: config-schema.json
-        values:
-          DATABASE_URL: postgres://postgresql:5432/acme_orders
-          MAX_ORDER_ITEMS: 50
-          ORDER_EXPIRY_MINUTES: 30
-          DATABASE_PASSWORD: secret://vault/orders-service/db-password
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            DATABASE_URL: postgres://postgresql:5432/acme_orders
+            MAX_ORDER_ITEMS: 50
+            ORDER_EXPIRY_MINUTES: 30
+            DATABASE_PASSWORD: secret://vault/orders-service/db-password
       dependencies:
-        - ref: oci://ghcr.io/acme/postgresql-pacto
+        - name: postgresql
+          ref: oci://ghcr.io/acme/postgresql-pacto
           required: true
           compatibility: "^16.0.0"
       runtime:
@@ -363,21 +370,24 @@ spec:
         - name: payment-events
           type: event
           visibility: internal
-      configuration:
-        schema: config-schema.json
-        values:
-          DATABASE_URL: postgres://postgresql:5432/acme_payments
-          STRIPE_ENDPOINT: https://api.stripe.com/v1
-          IDEMPOTENCY_TTL_HOURS: 48
-          CURRENCY_DEFAULT: usd
-          STRIPE_SECRET_KEY: secret://vault/payments-service/stripe-secret-key
-          WEBHOOK_SIGNING_SECRET: secret://vault/payments-service/webhook-secret
-          DATABASE_PASSWORD: secret://vault/payments-service/db-password
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            DATABASE_URL: postgres://postgresql:5432/acme_payments
+            STRIPE_ENDPOINT: https://api.stripe.com/v1
+            IDEMPOTENCY_TTL_HOURS: 48
+            CURRENCY_DEFAULT: usd
+            STRIPE_SECRET_KEY: secret://vault/payments-service/stripe-secret-key
+            WEBHOOK_SIGNING_SECRET: secret://vault/payments-service/webhook-secret
+            DATABASE_PASSWORD: secret://vault/payments-service/db-password
       dependencies:
-        - ref: oci://ghcr.io/acme/postgresql-pacto
+        - name: postgresql
+          ref: oci://ghcr.io/acme/postgresql-pacto
           required: true
           compatibility: "^16.0.0"
-        - ref: oci://ghcr.io/acme/stripe-api-pacto
+        - name: stripe-api
+          ref: oci://ghcr.io/acme/stripe-api-pacto
           required: true
           compatibility: "^2024.0.0"
       runtime:
@@ -437,23 +447,27 @@ spec:
           port: 8080
           visibility: internal
           contract: openapi.yaml
-      configuration:
-        schema: config-schema.json
-        values:
-          AUTH_SERVICE_URL: http://auth-service:8080
-          ORDERS_SERVICE_URL: http://orders-service:8080
-          PAYMENTS_SERVICE_URL: http://payments-service:8080
-          RATE_LIMIT_RPS: 1000
-          REQUEST_TIMEOUT_MS: 5000
-          CORS_ALLOWED_ORIGINS: https://shop.acme.io
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            AUTH_SERVICE_URL: http://auth-service:8080
+            ORDERS_SERVICE_URL: http://orders-service:8080
+            PAYMENTS_SERVICE_URL: http://payments-service:8080
+            RATE_LIMIT_RPS: 1000
+            REQUEST_TIMEOUT_MS: 5000
+            CORS_ALLOWED_ORIGINS: https://shop.acme.io
       dependencies:
-        - ref: oci://ghcr.io/acme/auth-service-pacto
+        - name: auth-service
+          ref: oci://ghcr.io/acme/auth-service-pacto
           required: true
           compatibility: "^2.0.0"
-        - ref: oci://ghcr.io/acme/orders-service-pacto
+        - name: orders-service
+          ref: oci://ghcr.io/acme/orders-service-pacto
           required: true
           compatibility: "^3.0.0"
-        - ref: oci://ghcr.io/acme/payments-service-pacto
+        - name: payments-service
+          ref: oci://ghcr.io/acme/payments-service-pacto
           required: true
           compatibility: "^2.0.0"
       runtime:
@@ -507,15 +521,17 @@ spec:
           port: 3000
           visibility: public
           contract: openapi.yaml
-      configuration:
-        schema: config-schema.json
-        values:
-          API_GATEWAY_URL: http://api-gateway:8080
-          CDN_URL: https://cdn.acme.io
-          ANALYTICS_ID: UA-12345678-1
-          SESSION_SECRET: secret://vault/frontend/session-secret
+      configurations:
+        - name: default
+          schema: config-schema.json
+          values:
+            API_GATEWAY_URL: http://api-gateway:8080
+            CDN_URL: https://cdn.acme.io
+            ANALYTICS_ID: UA-12345678-1
+            SESSION_SECRET: secret://vault/frontend/session-secret
       dependencies:
-        - ref: oci://ghcr.io/acme/api-gateway-pacto
+        - name: api-gateway
+          ref: oci://ghcr.io/acme/api-gateway-pacto
           required: true
           compatibility: "^1.0.0"
       runtime:

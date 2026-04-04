@@ -334,29 +334,28 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		pacto.Status.Interfaces = append(pacto.Status.Interfaces, ii)
 	}
 
-	// Configurations (supports both legacy single-config and multi-config)
-	if c.Configuration != nil {
-		for _, eff := range c.Configuration.EffectiveConfigs() {
-			ci := pactov1alpha1.ConfigurationInfo{
-				Name:      eff.Name,
-				HasSchema: eff.Schema != "",
-				Ref:       eff.Ref,
-			}
-			for k, v := range eff.Values {
-				ci.ValueKeys = append(ci.ValueKeys, k)
-				if s, ok := v.(string); ok && strings.HasPrefix(s, "secret://") {
-					ci.SecretKeys = append(ci.SecretKeys, k)
-				}
-			}
-			sort.Strings(ci.ValueKeys)
-			sort.Strings(ci.SecretKeys)
-			pacto.Status.Configurations = append(pacto.Status.Configurations, ci)
+	// Configurations
+	for _, cfg := range c.Configurations {
+		ci := pactov1alpha1.ConfigurationInfo{
+			Name:      cfg.Name,
+			HasSchema: cfg.Schema != "",
+			Ref:       cfg.Ref,
 		}
+		for k, v := range cfg.Values {
+			ci.ValueKeys = append(ci.ValueKeys, k)
+			if s, ok := v.(string); ok && strings.HasPrefix(s, "secret://") {
+				ci.SecretKeys = append(ci.SecretKeys, k)
+			}
+		}
+		sort.Strings(ci.ValueKeys)
+		sort.Strings(ci.SecretKeys)
+		pacto.Status.Configurations = append(pacto.Status.Configurations, ci)
 	}
 
 	// Dependencies
 	for _, dep := range c.Dependencies {
 		pacto.Status.Dependencies = append(pacto.Status.Dependencies, pactov1alpha1.DependencyInfo{
+			Name:          dep.Name,
 			Ref:           dep.Ref,
 			Required:      dep.Required,
 			Compatibility: dep.Compatibility,
@@ -366,6 +365,7 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 	// Policies
 	for _, pol := range c.Policies {
 		pacto.Status.Policies = append(pacto.Status.Policies, pactov1alpha1.PolicyInfo{
+			Name:      pol.Name,
 			HasSchema: pol.Schema != "",
 			Schema:    pol.Schema,
 			Ref:       pol.Ref,
