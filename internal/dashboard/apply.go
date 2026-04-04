@@ -19,8 +19,12 @@ import (
 
 // serviceAccountAC returns a server-side apply configuration for the dashboard ServiceAccount.
 func serviceAccountAC(cfg Config) runtime.ApplyConfiguration {
-	return corev1ac.ServiceAccount(Name, cfg.Namespace).
+	sa := corev1ac.ServiceAccount(Name, cfg.Namespace).
 		WithLabels(Labels())
+	if cfg.OwnerRef != nil {
+		sa.WithOwnerReferences(cfg.OwnerRef)
+	}
+	return sa
 }
 
 // clusterRoleAC returns a server-side apply configuration for the dashboard ClusterRole.
@@ -118,7 +122,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		).
 		WithResources(corev1ac.ResourceRequirements().WithRequests(res.Requests).WithLimits(res.Limits))
 
-	return appsv1ac.Deployment(Name, cfg.Namespace).
+	deploy := appsv1ac.Deployment(Name, cfg.Namespace).
 		WithLabels(Labels()).
 		WithSpec(appsv1ac.DeploymentSpec().
 			WithReplicas(1).
@@ -139,11 +143,15 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 				),
 			),
 		)
+	if cfg.OwnerRef != nil {
+		deploy.WithOwnerReferences(cfg.OwnerRef)
+	}
+	return deploy
 }
 
 // serviceAC returns a server-side apply configuration for the dashboard Service.
 func serviceAC(cfg Config) runtime.ApplyConfiguration {
-	return corev1ac.Service(Name, cfg.Namespace).
+	svc := corev1ac.Service(Name, cfg.Namespace).
 		WithLabels(Labels()).
 		WithSpec(corev1ac.ServiceSpec().
 			WithSelector(SelectorLabels()).
@@ -155,14 +163,22 @@ func serviceAC(cfg Config) runtime.ApplyConfiguration {
 					WithProtocol(corev1.ProtocolTCP),
 			),
 		)
+	if cfg.OwnerRef != nil {
+		svc.WithOwnerReferences(cfg.OwnerRef)
+	}
+	return svc
 }
 
 // ociSecretAC returns a server-side apply configuration for the managed OCI credentials Secret.
 func ociSecretAC(cfg Config, data []byte) runtime.ApplyConfiguration {
-	return corev1ac.Secret(ManagedSecretName, cfg.Namespace).
+	secret := corev1ac.Secret(ManagedSecretName, cfg.Namespace).
 		WithLabels(Labels()).
 		WithType(corev1.SecretTypeDockerConfigJson).
 		WithData(map[string][]byte{
 			string(corev1.DockerConfigJsonKey): data,
 		})
+	if cfg.OwnerRef != nil {
+		secret.WithOwnerReferences(cfg.OwnerRef)
+	}
+	return secret
 }
