@@ -143,15 +143,15 @@ func (r *Reconciler) ensureNamespace(ctx context.Context) error {
 }
 
 func (r *Reconciler) reconcileServiceAccount(ctx context.Context) error {
-	return r.applyResource(ctx, BuildServiceAccount(r.Config))
+	return r.Apply(ctx, serviceAccountAC(r.Config), client.FieldOwner(FieldManager), client.ForceOwnership)
 }
 
 func (r *Reconciler) reconcileClusterRole(ctx context.Context) error {
-	return r.applyResource(ctx, BuildClusterRole())
+	return r.Apply(ctx, clusterRoleAC(), client.FieldOwner(FieldManager), client.ForceOwnership)
 }
 
 func (r *Reconciler) reconcileClusterRoleBinding(ctx context.Context) error {
-	return r.applyResource(ctx, BuildClusterRoleBinding(r.Config))
+	return r.Apply(ctx, clusterRoleBindingAC(r.Config), client.FieldOwner(FieldManager), client.ForceOwnership)
 }
 
 // reconcileOCICredentials reads the configured OCI secrets, merges their credentials,
@@ -191,40 +191,15 @@ func (r *Reconciler) reconcileOCICredentials(ctx context.Context) error {
 		return fmt.Errorf("merging OCI credentials: %w", err)
 	}
 
-	desired := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      ManagedSecretName,
-			Namespace: r.Config.Namespace,
-			Labels:    Labels(),
-		},
-		Type: corev1.SecretTypeDockerConfigJson,
-		Data: map[string][]byte{
-			corev1.DockerConfigJsonKey: merged,
-		},
-	}
-	return r.applyResource(ctx, desired)
+	return r.Apply(ctx, ociSecretAC(r.Config, merged), client.FieldOwner(FieldManager), client.ForceOwnership)
 }
 
 func (r *Reconciler) reconcileDeployment(ctx context.Context) error {
-	return r.applyResource(ctx, BuildDeployment(r.Config))
+	return r.Apply(ctx, deploymentAC(r.Config), client.FieldOwner(FieldManager), client.ForceOwnership)
 }
 
 func (r *Reconciler) reconcileService(ctx context.Context) error {
-	return r.applyResource(ctx, BuildService(r.Config))
-}
-
-// applyResource uses Server-Side Apply to create or update a resource.
-// SSA is conflict-free: it avoids the Get+Update race that can cause missed
-// updates (e.g. when the operator image changes across upgrades).
-// External metadata from other controllers (e.g. ArgoCD) is preserved
-// automatically because SSA only manages fields owned by our field manager.
-func (r *Reconciler) applyResource(ctx context.Context, desired client.Object) error {
-	gvks, _, err := r.Scheme.ObjectKinds(desired)
-	if err != nil {
-		return fmt.Errorf("looking up GVK: %w", err)
-	}
-	desired.GetObjectKind().SetGroupVersionKind(gvks[0])
-	return r.Patch(ctx, desired, client.Apply, client.FieldOwner(FieldManager), client.ForceOwnership)
+	return r.Apply(ctx, serviceAC(r.Config), client.FieldOwner(FieldManager), client.ForceOwnership)
 }
 
 // cleanup deletes all dashboard resources owned by the operator.

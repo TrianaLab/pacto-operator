@@ -17,6 +17,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
+	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
+	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -64,11 +67,11 @@ func TestEnsureNamespace_GetNonNotFoundError(t *testing.T) {
 func TestReconcile_ServiceAccountError(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-			if _, ok := obj.(*corev1.ServiceAccount); ok {
-				return fmt.Errorf("simulated sa patch error")
+		Apply: func(ctx context.Context, c client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+			if _, ok := obj.(*corev1ac.ServiceAccountApplyConfiguration); ok {
+				return fmt.Errorf("simulated sa apply error")
 			}
-			return c.Patch(ctx, obj, patch, opts...)
+			return c.Apply(ctx, obj, opts...)
 		},
 	})
 
@@ -86,11 +89,11 @@ func TestReconcile_ServiceAccountError(t *testing.T) {
 func TestReconcile_ClusterRoleError(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-			if _, ok := obj.(*rbacv1.ClusterRole); ok {
-				return fmt.Errorf("simulated cr patch error")
+		Apply: func(ctx context.Context, c client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+			if _, ok := obj.(*rbacv1ac.ClusterRoleApplyConfiguration); ok {
+				return fmt.Errorf("simulated cr apply error")
 			}
-			return c.Patch(ctx, obj, patch, opts...)
+			return c.Apply(ctx, obj, opts...)
 		},
 	})
 
@@ -108,11 +111,11 @@ func TestReconcile_ClusterRoleError(t *testing.T) {
 func TestReconcile_ClusterRoleBindingError(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-			if _, ok := obj.(*rbacv1.ClusterRoleBinding); ok {
-				return fmt.Errorf("simulated crb patch error")
+		Apply: func(ctx context.Context, c client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+			if _, ok := obj.(*rbacv1ac.ClusterRoleBindingApplyConfiguration); ok {
+				return fmt.Errorf("simulated crb apply error")
 			}
-			return c.Patch(ctx, obj, patch, opts...)
+			return c.Apply(ctx, obj, opts...)
 		},
 	})
 
@@ -130,11 +133,11 @@ func TestReconcile_ClusterRoleBindingError(t *testing.T) {
 func TestReconcile_DeploymentError(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-			if _, ok := obj.(*appsv1.Deployment); ok {
-				return fmt.Errorf("simulated deploy patch error")
+		Apply: func(ctx context.Context, c client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+			if _, ok := obj.(*appsv1ac.DeploymentApplyConfiguration); ok {
+				return fmt.Errorf("simulated deploy apply error")
 			}
-			return c.Patch(ctx, obj, patch, opts...)
+			return c.Apply(ctx, obj, opts...)
 		},
 	})
 
@@ -152,11 +155,11 @@ func TestReconcile_DeploymentError(t *testing.T) {
 func TestReconcile_ServiceError(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-			if _, ok := obj.(*corev1.Service); ok {
-				return fmt.Errorf("simulated svc patch error")
+		Apply: func(ctx context.Context, c client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+			if _, ok := obj.(*corev1ac.ServiceApplyConfiguration); ok {
+				return fmt.Errorf("simulated svc apply error")
 			}
-			return c.Patch(ctx, obj, patch, opts...)
+			return c.Apply(ctx, obj, opts...)
 		},
 	})
 
