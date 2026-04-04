@@ -14,7 +14,7 @@ tests:
           content:
             apiGroups: [rbac.authorization.k8s.io]
             resources: [clusterroles, clusterrolebindings]
-            verbs: [create, delete, get, list, update, watch]
+            verbs: [create, delete, get, list, patch, update, watch]
         any: true
 
   - it: should not include dashboard RBAC when dashboard is disabled
@@ -26,5 +26,5 @@ tests:
           content:
             apiGroups: [rbac.authorization.k8s.io]
             resources: [clusterroles, clusterrolebindings]
-            verbs: [create, delete, get, list, update, watch]
+            verbs: [create, delete, get, list, patch, update, watch]
         any: true
