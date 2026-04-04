@@ -12,6 +12,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1" //nolint:lll // Used by Config.OwnerRef field type
 )
 
 // Config holds the global dashboard deployment configuration.
@@ -46,6 +47,11 @@ type Config struct {
 	// Resources overrides the dashboard container's resource requirements.
 	// Zero-value fields fall back to built-in defaults.
 	Resources ResourcesConfig
+
+	// OwnerRef is an optional owner reference to the operator's own Deployment.
+	// When set, all namespaced dashboard resources are created with this owner,
+	// enabling ArgoCD to display them in the resource tree.
+	OwnerRef *metav1ac.OwnerReferenceApplyConfiguration
 }
 
 // EffectiveOCISecrets returns the resolved list of OCI secret names.

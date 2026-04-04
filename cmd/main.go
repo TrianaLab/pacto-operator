@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -18,11 +19,14 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -272,6 +276,26 @@ func main() {
 		}
 	}
 
+	// Discover the operator's own Deployment for setting ownerReferences on dashboard resources.
+	// This enables ArgoCD to display dashboard resources in the operator's resource tree.
+	var ownerRef *metav1ac.OwnerReferenceApplyConfiguration
+	if operatorDeployName := os.Getenv("OPERATOR_DEPLOYMENT_NAME"); operatorDeployName != "" {
+		operatorDeploy := &appsv1.Deployment{}
+		if err := mgr.GetAPIReader().Get(context.Background(), client.ObjectKey{
+			Namespace: dashboardNamespace,
+			Name:      operatorDeployName,
+		}, operatorDeploy); err != nil {
+			setupLog.Error(err, "Failed to look up operator Deployment for ownerReference",
+				"deployment", operatorDeployName)
+		} else {
+			ownerRef = metav1ac.OwnerReference().
+				WithAPIVersion("apps/v1").
+				WithKind("Deployment").
+				WithName(operatorDeploy.Name).
+				WithUID(operatorDeploy.UID)
+		}
+	}
+
 	dashCfg := dashboard.Config{
 		Enabled:        enableDashboard,
 		Image:          dashboardImage,
@@ -279,6 +303,7 @@ func main() {
 		WatchNamespace: watchNamespace,
 		OCISecret:      dashboardOCISecret,
 		OCISecrets:     parsedOCISecrets,
+		OwnerRef:       ownerRef,
 		Resources: dashboard.ResourcesConfig{
 			CPURequest:    dashboardCPURequest,
 			CPULimit:      dashboardCPULimit,
