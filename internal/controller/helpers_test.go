@@ -698,7 +698,7 @@ func TestPopulateContractStatus_ConfigurationNoSchema(t *testing.T) {
 
 	lr := &loader.LoadResult{
 		Contract: &contract.Contract{
-			Service:       contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+			Service:        contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 			Configurations: []contract.ConfigurationSource{{Name: "default", Values: map[string]any{"key1": "val1"}}},
 		},
 		RawYAML: []byte("test"),
