@@ -1409,8 +1409,9 @@ func TestEnsureRevision_CreatesNew(t *testing.T) {
 		Contract: &contract.Contract{
 			Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 		},
-		RawYAML:     []byte("test-yaml"),
-		ResolvedRef: "ghcr.io/org/svc:1.0.0",
+		RawYAML:        []byte("test-yaml"),
+		ResolvedRef:    "ghcr.io/org/svc:1.0.0",
+		ResolvedDigest: "sha256:abc123def456",
 	}
 
 	name, err := r.ensureRevision(context.Background(), pacto, lr)
@@ -1438,6 +1439,9 @@ func TestEnsureRevision_CreatesNew(t *testing.T) {
 	}
 	if rev.Spec.Source.OCI != "ghcr.io/org/svc:1.0.0" {
 		t.Fatalf("expected OCI source, got %s", rev.Spec.Source.OCI)
+	}
+	if rev.Spec.Source.Digest != "sha256:abc123def456" {
+		t.Fatalf("expected digest sha256:abc123def456, got %s", rev.Spec.Source.Digest)
 	}
 	if rev.Spec.PactoRef != "my-pacto" {
 		t.Fatalf("expected PactoRef my-pacto, got %s", rev.Spec.PactoRef)
@@ -1688,7 +1692,8 @@ func TestEnsureRevision_OCIRefFallback(t *testing.T) {
 		Contract: &contract.Contract{
 			Service: contract.ServiceIdentity{Name: "svc", Version: "2.0.0"},
 		},
-		RawYAML: []byte("oci-yaml"),
+		RawYAML:        []byte("oci-yaml"),
+		ResolvedDigest: "sha256:fallback999",
 		// ResolvedRef is empty but OCI ref is set on pacto spec
 	}
 
@@ -1704,6 +1709,9 @@ func TestEnsureRevision_OCIRefFallback(t *testing.T) {
 	}
 	if rev.Spec.Source.OCI != "ghcr.io/org/svc" {
 		t.Fatalf("expected OCI source from pacto spec, got %s", rev.Spec.Source.OCI)
+	}
+	if rev.Spec.Source.Digest != "sha256:fallback999" {
+		t.Fatalf("expected digest sha256:fallback999, got %s", rev.Spec.Source.Digest)
 	}
 }
 
@@ -1734,7 +1742,7 @@ func TestSyncAllRevisions_ListTagsError(t *testing.T) {
 	}
 }
 
-func TestSyncAllRevisions_TagAlreadyHasRevision(t *testing.T) {
+func TestSyncAllRevisions_TagAlreadyHasRevision_NoDigest(t *testing.T) {
 	pacto := &pactov1alpha1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
@@ -1743,7 +1751,7 @@ func TestSyncAllRevisions_TagAlreadyHasRevision(t *testing.T) {
 		},
 	}
 
-	// Create an existing revision for tag "1.0.0"
+	// Existing revision without digest — predates digest tracking, should skip.
 	existingRev := &pactov1alpha1.PactoRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto-1-0-0-abc",
@@ -1769,6 +1777,232 @@ func TestSyncAllRevisions_TagAlreadyHasRevision(t *testing.T) {
 	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSyncAllRevisions_TagAlreadyHasRevision_DigestMatches(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto",
+			Namespace: "default",
+			UID:       "test-uid",
+		},
+	}
+
+	existingRev := &pactov1alpha1.PactoRevision{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto-1-0-0-abc",
+			Namespace: "default",
+			Labels: map[string]string{
+				pactov1alpha1.LabelPactoName:       "my-pacto",
+				pactov1alpha1.LabelRevisionVersion: "1.0.0",
+			},
+		},
+		Spec: pactov1alpha1.PactoRevisionSpec{
+			Version:  "1.0.0",
+			PactoRef: "my-pacto",
+			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:matchingdigest"},
+		},
+	}
+
+	loadCalled := false
+	r := newReconciler(pacto, existingRev)
+	r.Loader = &mockLoader{
+		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"1.0.0"}, nil
+		},
+		loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+			loadCalled = true
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+				},
+				RawYAML:        []byte("same-yaml"),
+				ResolvedDigest: "sha256:matchingdigest",
+			}, nil
+		},
+	}
+
+	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !loadCalled {
+		t.Fatal("expected Load to be called for digest comparison")
+	}
+}
+
+func TestSyncAllRevisions_ForcePushDetected(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto",
+			Namespace: "default",
+			UID:       "test-uid",
+		},
+	}
+
+	existingRev := &pactov1alpha1.PactoRevision{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto-1-0-0-abc",
+			Namespace: "default",
+			Labels: map[string]string{
+				pactov1alpha1.LabelPactoName:       "my-pacto",
+				pactov1alpha1.LabelRevisionVersion: "1.0.0",
+			},
+		},
+		Spec: pactov1alpha1.PactoRevisionSpec{
+			Version:  "1.0.0",
+			PactoRef: "my-pacto",
+			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:olddigest000"},
+		},
+	}
+
+	recorder := record.NewFakeRecorder(20)
+	r := newReconciler(pacto, existingRev)
+	r.Recorder = recorder
+	r.Loader = &mockLoader{
+		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"1.0.0"}, nil
+		},
+		loadFn: func(_ context.Context, ref string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+				},
+				RawYAML:        []byte("new-content-after-force-push"),
+				ResolvedRef:    ref,
+				ResolvedDigest: "sha256:newdigest999",
+			}, nil
+		},
+	}
+
+	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// A new revision should have been created (different content hash)
+	revList := &pactov1alpha1.PactoRevisionList{}
+	if listErr := r.List(context.Background(), revList, client.InNamespace("default")); listErr != nil {
+		t.Fatalf("failed to list revisions: %v", listErr)
+	}
+	if len(revList.Items) < 2 {
+		t.Fatalf("expected at least 2 revisions (old + new), got %d", len(revList.Items))
+	}
+
+	// Check that a TagOverwritten event was emitted
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "TagOverwritten") {
+			t.Fatalf("expected TagOverwritten event, got: %s", event)
+		}
+	default:
+		t.Fatal("expected a TagOverwritten event but none was emitted")
+	}
+}
+
+func TestSyncAllRevisions_ForcePush_LoadError(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto",
+			Namespace: "default",
+			UID:       "test-uid",
+		},
+	}
+
+	existingRev := &pactov1alpha1.PactoRevision{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto-1-0-0-abc",
+			Namespace: "default",
+			Labels: map[string]string{
+				pactov1alpha1.LabelPactoName:       "my-pacto",
+				pactov1alpha1.LabelRevisionVersion: "1.0.0",
+			},
+		},
+		Spec: pactov1alpha1.PactoRevisionSpec{
+			Version:  "1.0.0",
+			PactoRef: "my-pacto",
+			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:olddigest000"},
+		},
+	}
+
+	r := newReconciler(pacto, existingRev)
+	r.Loader = &mockLoader{
+		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"1.0.0"}, nil
+		},
+		loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+			return nil, fmt.Errorf("registry unavailable")
+		},
+	}
+
+	// Should not return error — continues on load error during digest check
+	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+}
+
+func TestSyncAllRevisions_ForcePush_EnsureRevisionError(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto",
+			Namespace: "default",
+			UID:       "test-uid",
+		},
+	}
+
+	existingRev := &pactov1alpha1.PactoRevision{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto-1-0-0-abc",
+			Namespace: "default",
+			Labels: map[string]string{
+				pactov1alpha1.LabelPactoName:       "my-pacto",
+				pactov1alpha1.LabelRevisionVersion: "1.0.0",
+			},
+		},
+		Spec: pactov1alpha1.PactoRevisionSpec{
+			Version:  "1.0.0",
+			PactoRef: "my-pacto",
+			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:olddigest000"},
+		},
+	}
+
+	r := newReconciler(pacto, existingRev)
+	r.Loader = &mockLoader{
+		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"1.0.0"}, nil
+		},
+		loadFn: func(_ context.Context, ref string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+				},
+				RawYAML:        []byte("force-pushed-content"),
+				ResolvedRef:    ref,
+				ResolvedDigest: "sha256:newdigest999",
+			}, nil
+		},
+	}
+
+	// Inject Create error to make ensureRevision fail
+	s := newScheme()
+	r.Client = fake.NewClientBuilder().WithScheme(s).WithObjects(pacto, existingRev).
+		WithStatusSubresource(&pactov1alpha1.PactoRevision{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if _, ok := obj.(*pactov1alpha1.PactoRevision); ok {
+					return fmt.Errorf("simulated create error")
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+		}).Build()
+	r.Scheme = s
+
+	// Should not return error — continues on ensureRevision error
+	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
 	}
 }
 

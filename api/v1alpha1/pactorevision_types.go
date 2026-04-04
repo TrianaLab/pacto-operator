@@ -18,6 +18,11 @@ type RevisionSource struct {
 	// +optional
 	OCI string `json:"oci,omitempty"`
 
+	// Digest is the OCI manifest digest (sha256:...) at the time of resolution.
+	// Used to detect force-pushes (tag overwrites) on the registry.
+	// +optional
+	Digest string `json:"digest,omitempty"`
+
 	// Inline indicates the contract was provided inline (no external source).
 	// +optional
 	Inline bool `json:"inline,omitempty"`

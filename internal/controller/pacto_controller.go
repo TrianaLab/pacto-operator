@@ -801,8 +801,10 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 	source := pactov1alpha1.RevisionSource{}
 	if loadResult.ResolvedRef != "" {
 		source.OCI = loadResult.ResolvedRef
+		source.Digest = loadResult.ResolvedDigest
 	} else if pacto.Spec.ContractRef.OCI != "" {
 		source.OCI = pacto.Spec.ContractRef.OCI
+		source.Digest = loadResult.ResolvedDigest
 	} else {
 		source.Inline = true
 	}
@@ -876,7 +878,42 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 		); listErr != nil {
 			log.V(1).Info("Failed to list revisions for tag", "tag", tag, "error", listErr)
 			continue
-		} else if len(revList.Items) > 0 {
+		}
+
+		// If a revision exists for this tag, check whether the digest still matches.
+		// A mismatch means the tag was force-pushed (overwritten) on the registry.
+		if len(revList.Items) > 0 {
+			existing := revList.Items[0]
+			storedDigest := existing.Spec.Source.Digest
+			if storedDigest == "" {
+				// Revision predates digest tracking — skip drift check.
+				continue
+			}
+
+			loadResult, loadErr := r.Loader.Load(ctx, taggedRef, "", ociAuth)
+			if loadErr != nil {
+				log.V(1).Info("Skipping digest check: failed to load", "tag", tag, "error", loadErr)
+				continue
+			}
+
+			if loadResult.ResolvedDigest == storedDigest {
+				continue // Digest matches — tag was not overwritten.
+			}
+
+			log.Info("Detected force-push: OCI digest changed for tag",
+				"tag", tag,
+				"oldDigest", storedDigest,
+				"newDigest", loadResult.ResolvedDigest,
+				"oldRevision", existing.Name)
+			r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "TagOverwritten",
+				"Tag %s was force-pushed (digest changed from %s to %s)", tag, storedDigest[:12], loadResult.ResolvedDigest[:12])
+
+			revName, revErr := r.ensureRevision(ctx, pacto, loadResult)
+			if revErr != nil {
+				log.V(1).Info("Failed to create revision for force-pushed tag", "tag", tag, "error", revErr)
+				continue
+			}
+			log.Info("Created new revision for force-pushed tag", "tag", tag, "revision", revName)
 			continue
 		}
 

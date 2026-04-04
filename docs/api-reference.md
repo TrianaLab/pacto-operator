@@ -452,6 +452,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `oci` _string_ | OCI is the fully resolved OCI reference (including tag/digest).<br />Example: ghcr.io/org/service-pacto:1.2.0 |  | Optional: \{\} <br /> |
+| `digest` _string_ | Digest is the OCI manifest digest (sha256:...) at the time of resolution.<br />Used to detect force-pushes (tag overwrites) on the registry. |  | Optional: \{\} <br /> |
 | `inline` _boolean_ | Inline indicates the contract was provided inline (no external source). |  | Optional: \{\} <br /> |
 
 
