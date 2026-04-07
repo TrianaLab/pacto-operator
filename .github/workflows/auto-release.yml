@@ -264,7 +264,7 @@ jobs:
       # This pushes artifacthub-repo.yml as an OCI artifact with the reserved
       # "artifacthub.io" tag, which Artifact Hub polls for discovery.
       - name: Install ORAS
-        uses: oras-project/setup-oras@v1
+        uses: oras-project/setup-oras@v2
 
       - name: Push Artifact Hub metadata
         run: |
