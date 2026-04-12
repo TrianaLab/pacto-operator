@@ -93,6 +93,39 @@ spec:
                         - kubernetes.io/dockerconfigjson (standard Docker registry auth)
                     type: string
                 type: object
+              overrides:
+                description: |-
+                  Overrides specifies partial configuration overrides to apply on top of the resolved contract.
+                  This enables environment-specific tuning without duplicating the entire contract inline.
+                  Semantics mirror the Pacto CLI --set / -f override model.
+                properties:
+                  configurations:
+                    description: |-
+                      Configurations lists per-scope configuration value overrides.
+                      Each entry is matched by name to a configurations[] entry in the resolved contract.
+                    items:
+                      description: ConfigurationOverride specifies value overrides
+                        for a single named configuration scope.
+                      properties:
+                        name:
+                          description: Name identifies the configuration scope to
+                            override (must match a configurations[] entry in the contract).
+                          minLength: 1
+                          type: string
+                        values:
+                          additionalProperties:
+                            type: string
+                          description: |-
+                            Values contains the configuration key-value pairs to merge into the resolved contract.
+                            These values take precedence over the values declared in the contract.
+                          minProperties: 1
+                          type: object
+                      required:
+                      - name
+                      - values
+                      type: object
+                    type: array
+                type: object
               target:
                 description: |-
                   Target specifies which Kubernetes resources to observe.
@@ -204,6 +237,13 @@ spec:
                       description: Name is the configuration scope name (required,
                         unique within contract).
                       type: string
+                    overriddenKeys:
+                      description: |-
+                        OverriddenKeys lists configuration keys whose values were overridden
+                        by spec.overrides.configurations. Empty when no overrides apply.
+                      items:
+                        type: string
+                      type: array
                     ref:
                       description: Ref is the external OCI reference for the configuration
                         schema, if used.

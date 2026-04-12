@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -109,22 +110,46 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			}, nil)
 	}
 
-	// 5. Structural + cross-field + semantic validation
-	contractResult := validation.Validate(loadResult.Contract, loadResult.RawYAML, loadResult.BundleFS)
+	// 4b. Apply configuration overrides (if specified)
+	effectiveContract := loadResult.Contract
+	var overriddenKeys map[string][]string
+	if pacto.Spec.Overrides != nil {
+		var overrideErr error
+		effectiveContract, overriddenKeys, overrideErr = applyConfigurationOverrides(loadResult.Contract, pacto.Spec.Overrides)
+		if overrideErr != nil {
+			return r.failReconciliation(ctx, pacto, fmt.Sprintf("override error: %s", overrideErr.Error()),
+				&pactov1alpha1.ValidationResult{
+					Valid:  false,
+					Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.overrides", Message: overrideErr.Error()}},
+				}, loadResult.Contract)
+		}
+	}
+
+	// 5. Structural + cross-field + semantic validation (on effective contract)
+	contractResult := validation.Validate(effectiveContract, loadResult.RawYAML, loadResult.BundleFS)
 	pacto.Status.Validation = mapValidationResult(contractResult)
 
 	if len(contractResult.Errors) > 0 {
 		msg := formatValidationErrors(contractResult.Errors)
-		return r.failReconciliation(ctx, pacto, msg, pacto.Status.Validation, loadResult.Contract)
+		return r.failReconciliation(ctx, pacto, msg, pacto.Status.Validation, effectiveContract)
 	}
 
 	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue,
 		pactov1alpha1.ReasonContractParsed,
-		fmt.Sprintf("Contract %s v%s is valid", loadResult.Contract.Service.Name, loadResult.Contract.Service.Version))
+		fmt.Sprintf("Contract %s v%s is valid", effectiveContract.Service.Name, effectiveContract.Service.Version))
 
-	// 6. Populate contract-derived status fields
-	pacto.Status.ContractVersion = loadResult.Contract.Service.Version
-	r.populateContractStatus(pacto, loadResult)
+	// 6. Populate contract-derived status fields (from effective contract)
+	pacto.Status.ContractVersion = effectiveContract.Service.Version
+	effectiveLR := *loadResult
+	effectiveLR.Contract = effectiveContract
+	r.populateContractStatus(pacto, &effectiveLR)
+
+	// Mark overridden keys in configuration status
+	for i := range pacto.Status.Configurations {
+		if keys, ok := overriddenKeys[pacto.Status.Configurations[i].Name]; ok {
+			pacto.Status.Configurations[i].OverriddenKeys = keys
+		}
+	}
 
 	// 7. Ensure PactoRevision for current version
 	revisionName, revErr := r.ensureRevision(ctx, pacto, loadResult)
@@ -144,10 +169,10 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if pacto.IsReference() {
 		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue,
 			pactov1alpha1.ReasonReferenceOnly,
-			fmt.Sprintf("Reference contract %s v%s is valid", loadResult.Contract.Service.Name, loadResult.Contract.Service.Version))
+			fmt.Sprintf("Reference contract %s v%s is valid", effectiveContract.Service.Name, effectiveContract.Service.Version))
 		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusReference
 		pacto.Status.Summary = &pactov1alpha1.CheckSummary{Total: 1, Passed: 1}
-		return r.finishReconciliation(ctx, pacto, loadResult.Contract, []validator.Check{
+		return r.finishReconciliation(ctx, pacto, effectiveContract, []validator.Check{
 			{Name: pactov1alpha1.ConditionContractValid, Passed: true, Severity: pactov1alpha1.SeverityError},
 		})
 	}
@@ -163,7 +188,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		log.Error(err, "Failed to observe runtime state")
 		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusUnknown
 		pacto.Status.Summary = &pactov1alpha1.CheckSummary{Total: 1, Passed: 1}
-		return r.finishReconciliation(ctx, pacto, loadResult.Contract, []validator.Check{
+		return r.finishReconciliation(ctx, pacto, effectiveContract, []validator.Check{
 			{Name: pactov1alpha1.ConditionContractValid, Passed: true, Severity: pactov1alpha1.SeverityError},
 		})
 	}
@@ -184,7 +209,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// 12. Validate contract against runtime (includes runtime reconciliation checks)
 	hasService := serviceName != ""
-	result := validator.Validate(loadResult.Contract, snapshot, hasService)
+	result := validator.Validate(effectiveContract, snapshot, hasService)
 
 	// 13. Map validation result → status
 	r.applyValidationResult(pacto, result, snapshot, serviceName, workloadName, workloadKind)
@@ -196,14 +221,14 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// 14. Probe declared endpoints (only when service exists)
 	if snapshot.ServiceExists {
-		endpointChecks := r.probeEndpoints(ctx, pacto, loadResult.Contract, serviceName)
+		endpointChecks := r.probeEndpoints(ctx, pacto, effectiveContract, serviceName)
 		allChecks = append(allChecks, endpointChecks...)
 	}
 
 	// 15. Compute final contract status including all checks
 	pacto.Status.ContractStatus = r.computeFinalContractStatus(pacto)
 
-	return r.finishReconciliation(ctx, pacto, loadResult.Contract, allChecks)
+	return r.finishReconciliation(ctx, pacto, effectiveContract, allChecks)
 }
 
 // resetDerivedStatus clears all status fields that are recomputed each reconciliation.
@@ -728,6 +753,64 @@ func resolutionPolicy(ociRef string) string {
 		return pactov1alpha1.ResolutionPolicyPinnedTag
 	}
 	return pactov1alpha1.ResolutionPolicyLatest
+}
+
+// --- Override application ---
+
+// applyConfigurationOverrides creates a shallow copy of the contract with configuration
+// overrides merged in. The original contract is never mutated (important for loader cache safety).
+// Returns the effective contract, a map of overridden key names per configuration, and any error.
+//
+// This implements name-based configuration matching rather than reusing the pacto library's
+// override.Apply (which operates on raw YAML with index-based --set paths). Name-based matching
+// is more appropriate for a declarative CRD where array ordering should not affect behavior.
+// The merge semantics (override values win) are aligned with the CLI model.
+func applyConfigurationOverrides(c *contract.Contract, overrides *pactov1alpha1.ContractOverrides) (*contract.Contract, map[string][]string, error) {
+	if overrides == nil || len(overrides.Configurations) == 0 {
+		return c, nil, nil
+	}
+
+	// Build lookup of existing configurations by name.
+	configByName := make(map[string]int, len(c.Configurations))
+	for i, cfg := range c.Configurations {
+		configByName[cfg.Name] = i
+	}
+
+	// Validate all override names exist before applying any.
+	for _, ov := range overrides.Configurations {
+		if _, ok := configByName[ov.Name]; !ok {
+			return nil, nil, fmt.Errorf("configuration %q not found in contract", ov.Name)
+		}
+	}
+
+	// Shallow-copy the contract and deep-copy the Configurations slice + Values maps.
+	effective := *c
+	effective.Configurations = make([]contract.ConfigurationSource, len(c.Configurations))
+	for i, cfg := range c.Configurations {
+		effective.Configurations[i] = cfg
+		if cfg.Values != nil {
+			effective.Configurations[i].Values = make(map[string]any, len(cfg.Values))
+			maps.Copy(effective.Configurations[i].Values, cfg.Values)
+		}
+	}
+
+	// Merge override values (override wins).
+	overriddenKeys := make(map[string][]string, len(overrides.Configurations))
+	for _, ov := range overrides.Configurations {
+		idx := configByName[ov.Name]
+		if effective.Configurations[idx].Values == nil {
+			effective.Configurations[idx].Values = make(map[string]any, len(ov.Values))
+		}
+		keys := make([]string, 0, len(ov.Values))
+		for k, v := range ov.Values {
+			effective.Configurations[idx].Values[k] = v
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		overriddenKeys[ov.Name] = keys
+	}
+
+	return &effective, overriddenKeys, nil
 }
 
 // --- Helpers ---

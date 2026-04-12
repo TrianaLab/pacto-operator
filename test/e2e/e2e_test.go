@@ -620,6 +620,110 @@ var _ = Describe("Operator", Ordered, func() {
 		})
 	})
 
+	// ── F2. Configuration Overrides ──────────────────────────────────────
+
+	Context("Configuration Overrides", Ordered, func() {
+		It("should merge override values into resolved contract (reference-only)", func() {
+			name := "e2e-config-override"
+			overridesYAML := `
+  overrides:
+    configurations:
+      - name: default
+        values:
+          db_host: staging-db.example.com`
+			applyPactoRaw(name, testNamespace, contractWithConfig, "", nil, overridesYAML)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("Reference"))
+				g.Expect(status.Configurations).To(HaveLen(1))
+				g.Expect(status.Configurations[0].Name).To(Equal("default"))
+				g.Expect(status.Configurations[0].OverriddenKeys).To(ContainElement("db_host"))
+				// Original keys should still be present.
+				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("db_host"))
+				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("api_key"))
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should apply overrides through full reconciliation with target workload", func() {
+			name := "e2e-config-override-target"
+			svcName := "e2e-override-target-svc"
+			createKubeService(svcName, testNamespace, 8080)
+			createKubeDeployment(svcName, testNamespace, "nginx:latest")
+			DeferCleanup(deleteKubeService, svcName, testNamespace)
+			DeferCleanup(deleteKubeDeployment, svcName, testNamespace)
+
+			overridesYAML := `
+  overrides:
+    configurations:
+      - name: default
+        values:
+          db_host: staging-db.example.com
+          new_key: new_value`
+			applyPactoRaw(name, testNamespace, contractWithConfig, svcName, nil, overridesYAML)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				// Should complete full reconciliation with runtime validation.
+				g.Expect(status.ContractStatus).NotTo(BeEmpty())
+				g.Expect(status.ContractStatus).NotTo(Equal("NonCompliant"),
+					"overrides should not cause contract failure")
+				// Resources should be observed.
+				g.Expect(status.Resources).NotTo(BeNil())
+				g.Expect(status.Resources.Service).NotTo(BeNil())
+				g.Expect(status.Resources.Service.Exists).To(BeTrue())
+				g.Expect(status.Resources.Workload).NotTo(BeNil())
+				g.Expect(status.Resources.Workload.Exists).To(BeTrue())
+				// Configurations should reflect overrides.
+				g.Expect(status.Configurations).To(HaveLen(1))
+				g.Expect(status.Configurations[0].OverriddenKeys).To(ConsistOf("db_host", "new_key"))
+				// Original + new keys should all be present.
+				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("db_host"))
+				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("api_key"))
+				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("new_key"))
+				// Summary should include runtime checks.
+				g.Expect(status.Summary).NotTo(BeNil())
+				g.Expect(status.Summary.Total).To(BeNumerically(">", 1),
+					"should have more than just ContractValid check")
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should fail reconciliation for unknown configuration name in overrides", func() {
+			name := "e2e-config-override-unknown"
+			overridesYAML := `
+  overrides:
+    configurations:
+      - name: nonexistent
+        values:
+          key: value`
+			applyPactoRaw(name, testNamespace, contractWithConfig, "", nil, overridesYAML)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("NonCompliant"))
+				g.Expect(status.Validation).NotTo(BeNil())
+				g.Expect(status.Validation.Valid).To(BeFalse())
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should have no overriddenKeys when overrides are not specified", func() {
+			name := "e2e-config-no-override"
+			applyPacto(name, testNamespace, contractWithConfig, "", nil)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("Reference"))
+				g.Expect(status.Configurations).To(HaveLen(1))
+				g.Expect(status.Configurations[0].OverriddenKeys).To(BeEmpty(),
+					"should have no overriddenKeys when no overrides are specified")
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+	})
+
 	// ── G. Metrics Verification ───────────────────────────────────────────
 
 	Context("Metrics", Ordered, func() {
@@ -697,11 +801,12 @@ type pactoStatus struct {
 }
 
 type configurationInfo struct {
-	Name       string   `json:"name"`
-	HasSchema  bool     `json:"hasSchema"`
-	Ref        string   `json:"ref"`
-	ValueKeys  []string `json:"valueKeys"`
-	SecretKeys []string `json:"secretKeys"`
+	Name           string   `json:"name"`
+	HasSchema      bool     `json:"hasSchema"`
+	Ref            string   `json:"ref"`
+	ValueKeys      []string `json:"valueKeys"`
+	SecretKeys     []string `json:"secretKeys"`
+	OverriddenKeys []string `json:"overriddenKeys"`
 }
 
 type policyInfo struct {
@@ -806,6 +911,45 @@ func applyPacto(name, ns, inlineContract, serviceName string, workloadRef *struc
 
 	// Use a short check interval for faster test feedback
 	spec += "\n  checkIntervalSeconds: 30"
+
+	manifest := fmt.Sprintf(`apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: %s
+  namespace: %s
+spec:
+%s`, name, ns, spec)
+
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(manifest)
+	_, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply Pacto CR %s", name)
+}
+
+// applyPactoRaw creates a Pacto CR with optional raw spec additions (e.g. overrides).
+func applyPactoRaw(name, ns, inlineContract, serviceName string, workloadRef *struct{ name, kind string }, extraSpec string) {
+	spec := fmt.Sprintf(`  contractRef:
+    inline: |
+%s`, indentYAML(inlineContract, 6))
+
+	if serviceName != "" {
+		spec += fmt.Sprintf(`
+  target:
+    serviceName: %s`, serviceName)
+	}
+
+	if workloadRef != nil {
+		spec += fmt.Sprintf(`
+    workloadRef:
+      name: %s
+      kind: %s`, workloadRef.name, workloadRef.kind)
+	}
+
+	spec += "\n  checkIntervalSeconds: 30"
+
+	if extraSpec != "" {
+		spec += extraSpec
+	}
 
 	manifest := fmt.Sprintf(`apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
