@@ -59,6 +59,30 @@ type TargetRef struct {
 	WorkloadRef *WorkloadRef `json:"workloadRef,omitempty"`
 }
 
+// ConfigurationOverride specifies value overrides for a single named configuration scope.
+type ConfigurationOverride struct {
+	// Name identifies the configuration scope to override (must match a configurations[] entry in the contract).
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// Values contains the configuration key-value pairs to merge into the resolved contract.
+	// These values take precedence over the values declared in the contract.
+	// +required
+	// +kubebuilder:validation:MinProperties=1
+	Values map[string]string `json:"values"`
+}
+
+// ContractOverrides specifies partial overrides to apply on top of the resolved contract.
+// Overrides are applied after contract resolution (OCI or inline) but before validation
+// and reconciliation. The original contract artifact is never mutated.
+type ContractOverrides struct {
+	// Configurations lists per-scope configuration value overrides.
+	// Each entry is matched by name to a configurations[] entry in the resolved contract.
+	// +optional
+	Configurations []ConfigurationOverride `json:"configurations,omitempty"`
+}
+
 // PactoSpec defines the desired state of Pacto.
 type PactoSpec struct {
 	// ContractRef specifies where to find the Pacto contract.
@@ -69,6 +93,12 @@ type PactoSpec struct {
 	// When omitted, the Pacto acts as a reference-only contract (no runtime validation).
 	// +optional
 	Target TargetRef `json:"target,omitempty"`
+
+	// Overrides specifies partial configuration overrides to apply on top of the resolved contract.
+	// This enables environment-specific tuning without duplicating the entire contract inline.
+	// Semantics mirror the Pacto CLI --set / -f override model.
+	// +optional
+	Overrides *ContractOverrides `json:"overrides,omitempty"`
 
 	// CheckIntervalSeconds controls how often the reconciler re-checks compliance.
 	// Defaults to 300 (5 minutes).
@@ -234,6 +264,11 @@ type ConfigurationInfo struct {
 	// SecretKeys lists configuration keys whose values reference secrets.
 	// +optional
 	SecretKeys []string `json:"secretKeys,omitempty"`
+
+	// OverriddenKeys lists configuration keys whose values were overridden
+	// by spec.overrides.configurations. Empty when no overrides apply.
+	// +optional
+	OverriddenKeys []string `json:"overriddenKeys,omitempty"`
 }
 
 // DependencyInfo describes a declared dependency.

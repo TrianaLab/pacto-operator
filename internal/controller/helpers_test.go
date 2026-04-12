@@ -4170,6 +4170,410 @@ func TestPopulateContractStatus_NoOwner(t *testing.T) {
 	}
 }
 
+// ---------- applyConfigurationOverrides ----------
+
+func TestApplyConfigurationOverrides_NilOverrides(t *testing.T) {
+	c := &contract.Contract{
+		Service:        contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.ConfigurationSource{{Name: "app", Values: map[string]any{"KEY": "val"}}},
+	}
+	got, keys, err := applyConfigurationOverrides(c, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != c {
+		t.Fatal("expected same pointer for nil overrides")
+	}
+	if keys != nil {
+		t.Fatal("expected nil keys")
+	}
+}
+
+func TestApplyConfigurationOverrides_EmptyConfigurations(t *testing.T) {
+	c := &contract.Contract{
+		Service:        contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.ConfigurationSource{{Name: "app", Values: map[string]any{"KEY": "val"}}},
+	}
+	got, keys, err := applyConfigurationOverrides(c, &pactov1alpha1.ContractOverrides{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != c {
+		t.Fatal("expected same pointer for empty overrides")
+	}
+	if keys != nil {
+		t.Fatal("expected nil keys")
+	}
+}
+
+func TestApplyConfigurationOverrides_UnknownConfigName(t *testing.T) {
+	c := &contract.Contract{
+		Service:        contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.ConfigurationSource{{Name: "app", Values: map[string]any{"KEY": "val"}}},
+	}
+	overrides := &pactov1alpha1.ContractOverrides{
+		Configurations: []pactov1alpha1.ConfigurationOverride{
+			{Name: "nonexistent", Values: map[string]string{"X": "Y"}},
+		},
+	}
+	_, _, err := applyConfigurationOverrides(c, overrides)
+	if err == nil {
+		t.Fatal("expected error for unknown configuration name")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Fatalf("expected error to mention config name, got: %v", err)
+	}
+}
+
+func TestApplyConfigurationOverrides_MergeValues(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.ConfigurationSource{
+			{Name: "app", Schema: "schema.json", Values: map[string]any{"LOG_LEVEL": "info", "DB_HOST": "localhost"}},
+			{Name: "platform", Values: map[string]any{"REGION": "us-east-1"}},
+		},
+	}
+	overrides := &pactov1alpha1.ContractOverrides{
+		Configurations: []pactov1alpha1.ConfigurationOverride{
+			{Name: "app", Values: map[string]string{"LOG_LEVEL": "debug", "NEW_KEY": "new_val"}},
+		},
+	}
+
+	got, keys, err := applyConfigurationOverrides(c, overrides)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Effective contract should have merged values.
+	appCfg := got.Configurations[0]
+	if appCfg.Values["LOG_LEVEL"] != "debug" {
+		t.Fatalf("expected LOG_LEVEL=debug, got %v", appCfg.Values["LOG_LEVEL"])
+	}
+	if appCfg.Values["DB_HOST"] != "localhost" {
+		t.Fatalf("expected DB_HOST=localhost (unchanged), got %v", appCfg.Values["DB_HOST"])
+	}
+	if appCfg.Values["NEW_KEY"] != "new_val" {
+		t.Fatalf("expected NEW_KEY=new_val, got %v", appCfg.Values["NEW_KEY"])
+	}
+
+	// Platform config should be unchanged.
+	if got.Configurations[1].Values["REGION"] != "us-east-1" {
+		t.Fatalf("expected REGION unchanged, got %v", got.Configurations[1].Values["REGION"])
+	}
+
+	// Overridden keys should be tracked.
+	if len(keys) != 1 {
+		t.Fatalf("expected 1 config with overrides, got %d", len(keys))
+	}
+	appKeys := keys["app"]
+	if len(appKeys) != 2 || appKeys[0] != "LOG_LEVEL" || appKeys[1] != "NEW_KEY" {
+		t.Fatalf("expected sorted [LOG_LEVEL, NEW_KEY], got %v", appKeys)
+	}
+
+	// Original contract must NOT be mutated.
+	if c.Configurations[0].Values["LOG_LEVEL"] != "info" {
+		t.Fatal("original contract was mutated")
+	}
+	if _, exists := c.Configurations[0].Values["NEW_KEY"]; exists {
+		t.Fatal("original contract was mutated (NEW_KEY added)")
+	}
+}
+
+func TestApplyConfigurationOverrides_ConfigWithNilValues(t *testing.T) {
+	c := &contract.Contract{
+		Service:        contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.ConfigurationSource{{Name: "app", Schema: "s.json"}},
+	}
+	overrides := &pactov1alpha1.ContractOverrides{
+		Configurations: []pactov1alpha1.ConfigurationOverride{
+			{Name: "app", Values: map[string]string{"KEY": "val"}},
+		},
+	}
+
+	got, keys, err := applyConfigurationOverrides(c, overrides)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Configurations[0].Values["KEY"] != "val" {
+		t.Fatalf("expected KEY=val, got %v", got.Configurations[0].Values["KEY"])
+	}
+	if len(keys["app"]) != 1 {
+		t.Fatalf("expected 1 overridden key, got %d", len(keys["app"]))
+	}
+}
+
+func TestApplyConfigurationOverrides_MultipleConfigs(t *testing.T) {
+	c := &contract.Contract{
+		Service: contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.ConfigurationSource{
+			{Name: "app", Values: map[string]any{"A": "1"}},
+			{Name: "platform", Values: map[string]any{"B": "2"}},
+		},
+	}
+	overrides := &pactov1alpha1.ContractOverrides{
+		Configurations: []pactov1alpha1.ConfigurationOverride{
+			{Name: "app", Values: map[string]string{"A": "overridden"}},
+			{Name: "platform", Values: map[string]string{"B": "overridden", "C": "new"}},
+		},
+	}
+
+	got, keys, err := applyConfigurationOverrides(c, overrides)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Configurations[0].Values["A"] != "overridden" {
+		t.Fatalf("expected A=overridden, got %v", got.Configurations[0].Values["A"])
+	}
+	if got.Configurations[1].Values["B"] != "overridden" {
+		t.Fatalf("expected B=overridden, got %v", got.Configurations[1].Values["B"])
+	}
+	if got.Configurations[1].Values["C"] != "new" {
+		t.Fatalf("expected C=new, got %v", got.Configurations[1].Values["C"])
+	}
+	if len(keys) != 2 {
+		t.Fatalf("expected 2 configs with overrides, got %d", len(keys))
+	}
+}
+
+func TestApplyConfigurationOverrides_DoesNotMutateOriginalContract(t *testing.T) {
+	origValues := map[string]any{"KEY": "original"}
+	c := &contract.Contract{
+		Service:        contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Configurations: []contract.ConfigurationSource{{Name: "app", Values: origValues}},
+	}
+	overrides := &pactov1alpha1.ContractOverrides{
+		Configurations: []pactov1alpha1.ConfigurationOverride{
+			{Name: "app", Values: map[string]string{"KEY": "overridden", "EXTRA": "val"}},
+		},
+	}
+
+	got, _, err := applyConfigurationOverrides(c, overrides)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Effective contract has overridden values.
+	if got.Configurations[0].Values["KEY"] != "overridden" {
+		t.Fatal("override not applied")
+	}
+
+	// Original contract is untouched.
+	if c.Configurations[0].Values["KEY"] != "original" {
+		t.Fatal("original Values map was mutated")
+	}
+	if _, exists := c.Configurations[0].Values["EXTRA"]; exists {
+		t.Fatal("original Values map was mutated (EXTRA key added)")
+	}
+}
+
+// ---------- Reconcile with overrides ----------
+
+func TestReconcile_OverridesApplied(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: "test"},
+			Overrides: &pactov1alpha1.ContractOverrides{
+				Configurations: []pactov1alpha1.ConfigurationOverride{
+					{Name: "app", Values: map[string]string{"LOG_LEVEL": "debug"}},
+				},
+			},
+			Target: pactov1alpha1.TargetRef{ServiceName: "my-svc"},
+		},
+	}
+
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: "1.0.0"},
+					Configurations: []contract.ConfigurationSource{
+						{Name: "app", Schema: "s.json", Values: map[string]any{"LOG_LEVEL": "info", "DB_HOST": "localhost"}},
+					},
+				},
+				RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 1.0.0\n"),
+			}, nil
+		},
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Fatal("expected requeue interval")
+	}
+
+	// Fetch updated status.
+	updated := &pactov1alpha1.Pacto{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "test", Namespace: "default"}, updated); err != nil {
+		t.Fatalf("failed to get updated pacto: %v", err)
+	}
+
+	// Configurations should reflect the override.
+	if len(updated.Status.Configurations) != 1 {
+		t.Fatalf("expected 1 configuration, got %d", len(updated.Status.Configurations))
+	}
+	cfg := updated.Status.Configurations[0]
+	if len(cfg.OverriddenKeys) != 1 || cfg.OverriddenKeys[0] != "LOG_LEVEL" {
+		t.Fatalf("expected OverriddenKeys=[LOG_LEVEL], got %v", cfg.OverriddenKeys)
+	}
+	// ValueKeys should include both original and overridden keys.
+	if len(cfg.ValueKeys) != 2 {
+		t.Fatalf("expected 2 value keys, got %d: %v", len(cfg.ValueKeys), cfg.ValueKeys)
+	}
+}
+
+func TestReconcile_OverridesUnknownConfig(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: "test"},
+			Overrides: &pactov1alpha1.ContractOverrides{
+				Configurations: []pactov1alpha1.ConfigurationOverride{
+					{Name: "nonexistent", Values: map[string]string{"X": "Y"}},
+				},
+			},
+			Target: pactov1alpha1.TargetRef{ServiceName: "my-svc"},
+		},
+	}
+
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service:        contract.ServiceIdentity{Name: "my-svc", Version: "1.0.0"},
+					Configurations: []contract.ConfigurationSource{{Name: "app"}},
+				},
+				RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 1.0.0\n"),
+			}, nil
+		},
+	}
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Status should indicate failure.
+	updated := &pactov1alpha1.Pacto{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "test", Namespace: "default"}, updated); err != nil {
+		t.Fatalf("failed to get updated pacto: %v", err)
+	}
+	if updated.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+		t.Fatalf("expected NonCompliant, got %s", updated.Status.ContractStatus)
+	}
+	if updated.Status.Validation == nil || len(updated.Status.Validation.Errors) == 0 {
+		t.Fatal("expected validation errors for unknown config override")
+	}
+	if !strings.Contains(updated.Status.Validation.Errors[0].Message, "nonexistent") {
+		t.Fatalf("expected error to mention config name, got: %s", updated.Status.Validation.Errors[0].Message)
+	}
+}
+
+func TestReconcile_OverridesReferenceOnly(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: "test"},
+			Overrides: &pactov1alpha1.ContractOverrides{
+				Configurations: []pactov1alpha1.ConfigurationOverride{
+					{Name: "app", Values: map[string]string{"LOG_LEVEL": "debug"}},
+				},
+			},
+			// No target → reference-only
+		},
+	}
+
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: "1.0.0"},
+					Configurations: []contract.ConfigurationSource{
+						{Name: "app", Schema: "config.json", Values: map[string]any{"LOG_LEVEL": "info"}},
+					},
+				},
+				RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 1.0.0\n"),
+			}, nil
+		},
+	}
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	updated := &pactov1alpha1.Pacto{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "test", Namespace: "default"}, updated); err != nil {
+		t.Fatalf("failed to get updated pacto: %v", err)
+	}
+	if updated.Status.ContractStatus != pactov1alpha1.ContractStatusReference {
+		t.Fatalf("expected Reference, got %s", updated.Status.ContractStatus)
+	}
+	// Overrides should still be reflected in configurations.
+	if len(updated.Status.Configurations) != 1 {
+		t.Fatalf("expected 1 configuration, got %d", len(updated.Status.Configurations))
+	}
+	if len(updated.Status.Configurations[0].OverriddenKeys) != 1 {
+		t.Fatalf("expected 1 overridden key, got %v", updated.Status.Configurations[0].OverriddenKeys)
+	}
+}
+
+func TestReconcile_NoOverrides_BackwardCompatible(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: "test"},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "my-svc"},
+		},
+	}
+
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract: &contract.Contract{
+					Service: contract.ServiceIdentity{Name: "my-svc", Version: "1.0.0"},
+					Configurations: []contract.ConfigurationSource{
+						{Name: "app", Schema: "config.json", Values: map[string]any{"KEY": "val"}},
+					},
+				},
+				RawYAML: []byte("pactoVersion: \"1.0\"\nservice:\n  name: my-svc\n  version: 1.0.0\n"),
+			}, nil
+		},
+	}
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "test", Namespace: "default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	updated := &pactov1alpha1.Pacto{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "test", Namespace: "default"}, updated); err != nil {
+		t.Fatalf("failed to get updated pacto: %v", err)
+	}
+
+	// No overrides → no OverriddenKeys.
+	if len(updated.Status.Configurations) != 1 {
+		t.Fatalf("expected 1 configuration, got %d", len(updated.Status.Configurations))
+	}
+	if len(updated.Status.Configurations[0].OverriddenKeys) != 0 {
+		t.Fatalf("expected no overridden keys, got %v", updated.Status.Configurations[0].OverriddenKeys)
+	}
+}
+
 // ---------- helper ----------
 
 func findCondition(conditions []metav1.Condition, condType string) *metav1.Condition {

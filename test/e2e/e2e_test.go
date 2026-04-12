@@ -620,6 +620,52 @@ var _ = Describe("Operator", Ordered, func() {
 		})
 	})
 
+	// ── F2. Configuration Overrides ──────────────────────────────────────
+
+	Context("Configuration Overrides", Ordered, func() {
+		It("should merge override values into resolved contract", func() {
+			name := "e2e-config-override"
+			overridesYAML := `
+  overrides:
+    configurations:
+      - name: default
+        values:
+          db_host: staging-db.example.com`
+			applyPactoRaw(name, testNamespace, contractWithConfig, "", nil, overridesYAML)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("Reference"))
+				g.Expect(status.Configurations).To(HaveLen(1))
+				g.Expect(status.Configurations[0].Name).To(Equal("default"))
+				g.Expect(status.Configurations[0].OverriddenKeys).To(ContainElement("db_host"))
+				// Original keys should still be present.
+				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("db_host"))
+				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("api_key"))
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should fail reconciliation for unknown configuration name in overrides", func() {
+			name := "e2e-config-override-unknown"
+			overridesYAML := `
+  overrides:
+    configurations:
+      - name: nonexistent
+        values:
+          key: value`
+			applyPactoRaw(name, testNamespace, contractWithConfig, "", nil, overridesYAML)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("NonCompliant"))
+				g.Expect(status.Validation).NotTo(BeNil())
+				g.Expect(status.Validation.Valid).To(BeFalse())
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+	})
+
 	// ── G. Metrics Verification ───────────────────────────────────────────
 
 	Context("Metrics", Ordered, func() {
@@ -697,11 +743,12 @@ type pactoStatus struct {
 }
 
 type configurationInfo struct {
-	Name       string   `json:"name"`
-	HasSchema  bool     `json:"hasSchema"`
-	Ref        string   `json:"ref"`
-	ValueKeys  []string `json:"valueKeys"`
-	SecretKeys []string `json:"secretKeys"`
+	Name           string   `json:"name"`
+	HasSchema      bool     `json:"hasSchema"`
+	Ref            string   `json:"ref"`
+	ValueKeys      []string `json:"valueKeys"`
+	SecretKeys     []string `json:"secretKeys"`
+	OverriddenKeys []string `json:"overriddenKeys"`
 }
 
 type policyInfo struct {
@@ -806,6 +853,45 @@ func applyPacto(name, ns, inlineContract, serviceName string, workloadRef *struc
 
 	// Use a short check interval for faster test feedback
 	spec += "\n  checkIntervalSeconds: 30"
+
+	manifest := fmt.Sprintf(`apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: %s
+  namespace: %s
+spec:
+%s`, name, ns, spec)
+
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(manifest)
+	_, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply Pacto CR %s", name)
+}
+
+// applyPactoRaw creates a Pacto CR with optional raw spec additions (e.g. overrides).
+func applyPactoRaw(name, ns, inlineContract, serviceName string, workloadRef *struct{ name, kind string }, extraSpec string) {
+	spec := fmt.Sprintf(`  contractRef:
+    inline: |
+%s`, indentYAML(inlineContract, 6))
+
+	if serviceName != "" {
+		spec += fmt.Sprintf(`
+  target:
+    serviceName: %s`, serviceName)
+	}
+
+	if workloadRef != nil {
+		spec += fmt.Sprintf(`
+    workloadRef:
+      name: %s
+      kind: %s`, workloadRef.name, workloadRef.kind)
+	}
+
+	spec += "\n  checkIntervalSeconds: 30"
+
+	if extraSpec != "" {
+		spec += extraSpec
+	}
 
 	manifest := fmt.Sprintf(`apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto

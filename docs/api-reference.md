@@ -50,6 +50,24 @@ _Appears in:_
 | `ref` _string_ | Ref is the external OCI reference for the configuration schema, if used. |  | Optional: \{\} <br /> |
 | `valueKeys` _string array_ | ValueKeys lists the declared configuration value keys. |  | Optional: \{\} <br /> |
 | `secretKeys` _string array_ | SecretKeys lists configuration keys whose values reference secrets. |  | Optional: \{\} <br /> |
+| `overriddenKeys` _string array_ | OverriddenKeys lists configuration keys whose values were overridden<br />by spec.overrides.configurations. Empty when no overrides apply. |  | Optional: \{\} <br /> |
+
+
+#### ConfigurationOverride
+
+
+
+ConfigurationOverride specifies value overrides for a single named configuration scope.
+
+
+
+_Appears in:_
+- [ContractOverrides](#contractoverrides)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name identifies the configuration scope to override (must match a configurations[] entry in the contract). |  | MinLength: 1 <br />Required: \{\} <br /> |
+| `values` _object (keys:string, values:string)_ | Values contains the configuration key-value pairs to merge into the resolved contract.<br />These values take precedence over the values declared in the contract. |  | MinProperties: 1 <br />Required: \{\} <br /> |
 
 
 #### ContractInfo
@@ -71,6 +89,24 @@ _Appears in:_
 | `ownerDisplay` _string_ | OwnerDisplay is the canonical display string derived from owner metadata.<br />Precedence: structured team > legacy string > structured DRI.<br />Useful for printer columns, dashboards, and backward-compatible consumers. |  | Optional: \{\} <br /> |
 | `imageRef` _string_ | ImageRef is the container image reference from the contract. |  | Optional: \{\} <br /> |
 | `resolvedRef` _string_ | ResolvedRef is the fully-resolved OCI reference (with tag/digest).<br />Empty for inline contracts. |  | Optional: \{\} <br /> |
+
+
+#### ContractOverrides
+
+
+
+ContractOverrides specifies partial overrides to apply on top of the resolved contract.
+Overrides are applied after contract resolution (OCI or inline) but before validation
+and reconciliation. The original contract artifact is never mutated.
+
+
+
+_Appears in:_
+- [PactoSpec](#pactospec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `configurations` _[ConfigurationOverride](#configurationoverride) array_ | Configurations lists per-scope configuration value overrides.<br />Each entry is matched by name to a configurations[] entry in the resolved contract. |  | Optional: \{\} <br /> |
 
 
 #### ContractRef
@@ -322,6 +358,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `contractRef` _[ContractRef](#contractref)_ | ContractRef specifies where to find the Pacto contract. |  | Required: \{\} <br /> |
 | `target` _[TargetRef](#targetref)_ | Target specifies which Kubernetes resources to observe.<br />When omitted, the Pacto acts as a reference-only contract (no runtime validation). |  | Optional: \{\} <br /> |
+| `overrides` _[ContractOverrides](#contractoverrides)_ | Overrides specifies partial configuration overrides to apply on top of the resolved contract.<br />This enables environment-specific tuning without duplicating the entire contract inline.<br />Semantics mirror the Pacto CLI --set / -f override model. |  | Optional: \{\} <br /> |
 | `checkIntervalSeconds` _integer_ | CheckIntervalSeconds controls how often the reconciler re-checks compliance.<br />Defaults to 300 (5 minutes). | 300 | Minimum: 30 <br />Optional: \{\} <br /> |
 
 
