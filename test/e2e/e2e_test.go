@@ -623,7 +623,7 @@ var _ = Describe("Operator", Ordered, func() {
 	// ── F2. Configuration Overrides ──────────────────────────────────────
 
 	Context("Configuration Overrides", Ordered, func() {
-		It("should merge override values into resolved contract", func() {
+		It("should merge override values into resolved contract (reference-only)", func() {
 			name := "e2e-config-override"
 			overridesYAML := `
   overrides:
@@ -646,6 +646,50 @@ var _ = Describe("Operator", Ordered, func() {
 			}, 60*time.Second, 2*time.Second).Should(Succeed())
 		})
 
+		It("should apply overrides through full reconciliation with target workload", func() {
+			name := "e2e-config-override-target"
+			svcName := "e2e-override-target-svc"
+			createKubeService(svcName, testNamespace, 8080)
+			createKubeDeployment(svcName, testNamespace, "nginx:latest")
+			DeferCleanup(deleteKubeService, svcName, testNamespace)
+			DeferCleanup(deleteKubeDeployment, svcName, testNamespace)
+
+			overridesYAML := `
+  overrides:
+    configurations:
+      - name: default
+        values:
+          db_host: staging-db.example.com
+          new_key: new_value`
+			applyPactoRaw(name, testNamespace, contractWithConfig, svcName, nil, overridesYAML)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				// Should complete full reconciliation with runtime validation.
+				g.Expect(status.ContractStatus).NotTo(BeEmpty())
+				g.Expect(status.ContractStatus).NotTo(Equal("NonCompliant"),
+					"overrides should not cause contract failure")
+				// Resources should be observed.
+				g.Expect(status.Resources).NotTo(BeNil())
+				g.Expect(status.Resources.Service).NotTo(BeNil())
+				g.Expect(status.Resources.Service.Exists).To(BeTrue())
+				g.Expect(status.Resources.Workload).NotTo(BeNil())
+				g.Expect(status.Resources.Workload.Exists).To(BeTrue())
+				// Configurations should reflect overrides.
+				g.Expect(status.Configurations).To(HaveLen(1))
+				g.Expect(status.Configurations[0].OverriddenKeys).To(ConsistOf("db_host", "new_key"))
+				// Original + new keys should all be present.
+				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("db_host"))
+				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("api_key"))
+				g.Expect(status.Configurations[0].ValueKeys).To(ContainElement("new_key"))
+				// Summary should include runtime checks.
+				g.Expect(status.Summary).NotTo(BeNil())
+				g.Expect(status.Summary.Total).To(BeNumerically(">", 1),
+					"should have more than just ContractValid check")
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
 		It("should fail reconciliation for unknown configuration name in overrides", func() {
 			name := "e2e-config-override-unknown"
 			overridesYAML := `
@@ -662,6 +706,20 @@ var _ = Describe("Operator", Ordered, func() {
 				g.Expect(status.ContractStatus).To(Equal("NonCompliant"))
 				g.Expect(status.Validation).NotTo(BeNil())
 				g.Expect(status.Validation.Valid).To(BeFalse())
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should have no overriddenKeys when overrides are not specified", func() {
+			name := "e2e-config-no-override"
+			applyPacto(name, testNamespace, contractWithConfig, "", nil)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("Reference"))
+				g.Expect(status.Configurations).To(HaveLen(1))
+				g.Expect(status.Configurations[0].OverriddenKeys).To(BeEmpty(),
+					"should have no overriddenKeys when no overrides are specified")
 			}, 60*time.Second, 2*time.Second).Should(Succeed())
 		})
 	})

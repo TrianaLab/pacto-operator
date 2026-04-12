@@ -239,6 +239,7 @@ func TestApplyCheck_Passed(t *testing.T) {
 	cond := findCondition(pacto.Status.Conditions, pactov1alpha1.ConditionHealthEndpointValid)
 	if cond == nil {
 		t.Fatal("expected condition to be set")
+		return
 	}
 	if cond.Status != metav1.ConditionTrue {
 		t.Fatalf("expected ConditionTrue, got %v", cond.Status)
@@ -266,6 +267,7 @@ func TestApplyCheck_Failed(t *testing.T) {
 	cond := findCondition(pacto.Status.Conditions, pactov1alpha1.ConditionMetricsEndpointValid)
 	if cond == nil {
 		t.Fatal("expected condition to be set")
+		return
 	}
 	if cond.Status != metav1.ConditionFalse {
 		t.Fatalf("expected ConditionFalse, got %v", cond.Status)
@@ -609,6 +611,7 @@ func TestPopulateContractStatus_RuntimeWithoutOptionalFields(t *testing.T) {
 	ri := pacto.Status.Runtime
 	if ri == nil {
 		t.Fatal("expected runtime info")
+		return
 	}
 	if ri.UpgradeStrategy != "" {
 		t.Fatalf("expected empty upgrade strategy, got %s", ri.UpgradeStrategy)
@@ -646,6 +649,7 @@ func TestPopulateContractStatus_ScalingWithoutReplicas(t *testing.T) {
 	si := pacto.Status.Scaling
 	if si == nil {
 		t.Fatal("expected scaling info")
+		return
 	}
 	if si.Replicas != nil {
 		t.Fatalf("expected nil replicas, got %v", si.Replicas)
@@ -678,6 +682,7 @@ func TestPopulateContractStatus_ScalingZeroMinMax(t *testing.T) {
 	si := pacto.Status.Scaling
 	if si == nil {
 		t.Fatal("expected scaling info")
+		return
 	}
 	if si.Replicas == nil || *si.Replicas != 1 {
 		t.Fatalf("expected 1 replica, got %v", si.Replicas)
@@ -747,6 +752,7 @@ func TestPopulateContractStatus_LifecycleWithoutGraceful(t *testing.T) {
 	ri := pacto.Status.Runtime
 	if ri == nil {
 		t.Fatal("expected runtime info")
+		return
 	}
 	if ri.UpgradeStrategy != "rolling" {
 		t.Fatalf("expected rolling, got %s", ri.UpgradeStrategy)
@@ -783,6 +789,7 @@ func TestPopulateContractStatus_HealthWithoutInitialDelay(t *testing.T) {
 	ri := pacto.Status.Runtime
 	if ri == nil {
 		t.Fatal("expected runtime info")
+		return
 	}
 	if ri.HealthInterface != "http-api" {
 		t.Fatalf("expected http-api, got %s", ri.HealthInterface)
@@ -1078,6 +1085,7 @@ func TestProbeOneEndpoint_Unreachable(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected result even for unreachable")
+		return
 	}
 	if result.Reachable {
 		t.Fatal("expected Reachable=false")
@@ -2323,6 +2331,7 @@ func TestFailReconciliation_WithServiceName(t *testing.T) {
 	cond := findCondition(pacto.Status.Conditions, pactov1alpha1.ConditionContractValid)
 	if cond == nil {
 		t.Fatal("expected ContractValid condition")
+		return
 	}
 	if cond.Status != metav1.ConditionFalse {
 		t.Fatalf("expected ConditionFalse, got %v", cond.Status)
@@ -4006,6 +4015,7 @@ func TestMapOwnerToInfo_LegacyString(t *testing.T) {
 	result := mapOwnerToInfo(o)
 	if result == nil {
 		t.Fatal("expected non-nil for string owner")
+		return
 	}
 	if result.Team != "team/payments" {
 		t.Errorf("expected Team=team/payments, got %s", result.Team)
@@ -4031,6 +4041,7 @@ func TestMapOwnerToInfo_Structured(t *testing.T) {
 	result := mapOwnerToInfo(o)
 	if result == nil {
 		t.Fatal("expected non-nil for structured owner")
+		return
 	}
 	if result.Team != "platform-foundations" {
 		t.Errorf("expected Team=platform-foundations, got %s", result.Team)
@@ -4054,6 +4065,7 @@ func TestMapOwnerToInfo_StructuredDRIOnly(t *testing.T) {
 	result := mapOwnerToInfo(o)
 	if result == nil {
 		t.Fatal("expected non-nil")
+		return
 	}
 	if result.Team != "" {
 		t.Errorf("expected empty Team, got %s", result.Team)

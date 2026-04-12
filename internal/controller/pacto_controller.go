@@ -760,6 +760,11 @@ func resolutionPolicy(ociRef string) string {
 // applyConfigurationOverrides creates a shallow copy of the contract with configuration
 // overrides merged in. The original contract is never mutated (important for loader cache safety).
 // Returns the effective contract, a map of overridden key names per configuration, and any error.
+//
+// This implements name-based configuration matching rather than reusing the pacto library's
+// override.Apply (which operates on raw YAML with index-based --set paths). Name-based matching
+// is more appropriate for a declarative CRD where array ordering should not affect behavior.
+// The merge semantics (override values win) are aligned with the CLI model.
 func applyConfigurationOverrides(c *contract.Contract, overrides *pactov1alpha1.ContractOverrides) (*contract.Contract, map[string][]string, error) {
 	if overrides == nil || len(overrides.Configurations) == 0 {
 		return c, nil, nil
