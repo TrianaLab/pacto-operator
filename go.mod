@@ -8,7 +8,7 @@ require (
 	github.com/onsi/gomega v1.39.1
 	go.opentelemetry.io/otel/exporters/prometheus v0.65.0
 	go.opentelemetry.io/otel/sdk/metric v1.43.0
-	k8s.io/apimachinery v0.35.3
+	k8s.io/apimachinery v0.35.4
 	k8s.io/client-go v0.35.3
 	sigs.k8s.io/controller-runtime v0.23.3
 )
