@@ -161,7 +161,7 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 					Items: []corev1.KeyToPath{
 						{Key: corev1.DockerConfigJsonKey, Path: "config.json"},
 					},
-					Optional: boolPtr(true),
+					Optional: new(true),
 				},
 			},
 		})
@@ -185,7 +185,7 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 				Spec: corev1.PodSpec{
 					ServiceAccountName: Name,
 					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: boolPtr(true),
+						RunAsNonRoot: new(true),
 						RunAsUser:    int64Ptr(65532),
 						SeccompProfile: &corev1.SeccompProfile{
 							Type: corev1.SeccompProfileTypeRuntimeDefault,
@@ -225,8 +225,8 @@ func BuildDeployment(cfg Config) *appsv1.Deployment {
 								PeriodSeconds:       10,
 							},
 							SecurityContext: &corev1.SecurityContext{
-								ReadOnlyRootFilesystem:   boolPtr(true),
-								AllowPrivilegeEscalation: boolPtr(false),
+								ReadOnlyRootFilesystem:   new(true),
+								AllowPrivilegeEscalation: new(false),
 								Capabilities: &corev1.Capabilities{
 									Drop: []corev1.Capability{"ALL"},
 								},
@@ -264,5 +264,5 @@ func BuildService(cfg Config) *corev1.Service {
 	}
 }
 
-func boolPtr(b bool) *bool    { return &b }
-func int64Ptr(i int64) *int64 { return &i }
+//go:fix inline
+func int64Ptr(i int64) *int64 { return new(i) }

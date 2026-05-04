@@ -8,12 +8,10 @@ import (
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
-func intPtr(v int) *int { return &v }
-
 func TestValidate_CompliantWithService(t *testing.T) {
 	c := &contract.Contract{
 		Interfaces: []contract.Interface{
-			{Name: "http-api", Type: "http", Port: intPtr(8080)},
+			{Name: "http-api", Type: "http", Port: new(8080)},
 		},
 	}
 	snap := &observer.RuntimeSnapshot{
@@ -38,7 +36,7 @@ func TestValidate_CompliantWithService(t *testing.T) {
 func TestValidate_ServiceNotFound(t *testing.T) {
 	c := &contract.Contract{
 		Interfaces: []contract.Interface{
-			{Name: "http-api", Type: "http", Port: intPtr(8080)},
+			{Name: "http-api", Type: "http", Port: new(8080)},
 		},
 	}
 	snap := &observer.RuntimeSnapshot{
@@ -80,8 +78,8 @@ func TestValidate_WorkloadNotFound(t *testing.T) {
 func TestValidate_PortsMismatch(t *testing.T) {
 	c := &contract.Contract{
 		Interfaces: []contract.Interface{
-			{Name: "http-api", Type: "http", Port: intPtr(8080)},
-			{Name: "metrics", Type: "http", Port: intPtr(9090)},
+			{Name: "http-api", Type: "http", Port: new(8080)},
+			{Name: "metrics", Type: "http", Port: new(9090)},
 		},
 	}
 	snap := &observer.RuntimeSnapshot{
@@ -323,7 +321,7 @@ func TestValidate_AllRuntimeChecksWithHealth(t *testing.T) {
 	delay := 5
 	c := &contract.Contract{
 		Interfaces: []contract.Interface{
-			{Name: "http", Type: "http", Port: intPtr(8080)},
+			{Name: "http", Type: "http", Port: new(8080)},
 		},
 		Service: contract.ServiceIdentity{
 			Image: &contract.Image{Ref: "myapp:v1"},
