@@ -303,7 +303,7 @@ cosign verify \
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - Docker
 - kubectl
 - [Kind](https://kind.sigs.k8s.io/) (for local Kubernetes and e2e tests)

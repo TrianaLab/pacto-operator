@@ -395,6 +395,9 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
 
 GOLANGCI_LINT_VERSION ?= v2.8.0
 HELM_UNITTEST_VERSION ?= 0.7.2
+
+# Project Go toolchain version, derived from go.mod (e.g. "1.26.0").
+GO_VERSION ?= $(shell awk '$$1=="go" {print $$2; exit}' go.mod)
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
@@ -421,10 +424,15 @@ $(ENVTEST): $(LOCALBIN)
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
-	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+	@# Force the local Go toolchain so the binary embeds runtime.Version() matching
+	@# the project's go directive. golangci-lint policy lags Go releases by one minor
+	@# version, so its module declares an older `go` directive; without this override
+	@# `go install` would download that older toolchain and the resulting binary would
+	@# refuse to lint code targeting a newer Go version.
+	GOTOOLCHAIN=go$(GO_VERSION) $(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 	@test -f .custom-gcl.yml && { \
 		echo "Building custom golangci-lint with plugins..." && \
-		$(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
+		GOTOOLCHAIN=go$(GO_VERSION) $(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
 		mv -f $(LOCALBIN)/golangci-lint-custom $(GOLANGCI_LINT); \
 	} || true
 

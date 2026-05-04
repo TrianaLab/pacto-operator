@@ -8,8 +8,11 @@ import (
 	"github.com/trianalab/pacto/pkg/contract"
 )
 
-func int32Ptr(v int32) *int32 { return &v }
-func int64Ptr(v int64) *int64 { return &v }
+//go:fix inline
+func int32Ptr(v int32) *int32 { return new(v) }
+
+//go:fix inline
+func int64Ptr(v int64) *int64 { return new(v) }
 
 // --- checkWorkloadType tests ---
 
@@ -489,7 +492,7 @@ func TestValidate_WithRuntimeChecks(t *testing.T) {
 			Image: &contract.Image{Ref: "ghcr.io/org/svc:v1.0.0"},
 		},
 		Interfaces: []contract.Interface{
-			{Name: "http-api", Type: "http", Port: intPtr(8080)},
+			{Name: "http-api", Type: "http", Port: new(8080)},
 		},
 		Runtime: &contract.Runtime{
 			Workload: "service",
@@ -567,7 +570,7 @@ func TestValidate_RuntimeChecksWarning(t *testing.T) {
 func TestValidate_NoRuntimeSection(t *testing.T) {
 	c := &contract.Contract{
 		Interfaces: []contract.Interface{
-			{Name: "api", Type: "http", Port: intPtr(8080)},
+			{Name: "api", Type: "http", Port: new(8080)},
 		},
 	}
 	snap := &observer.RuntimeSnapshot{
