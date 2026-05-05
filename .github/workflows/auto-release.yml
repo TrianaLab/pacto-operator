@@ -240,7 +240,7 @@ jobs:
           sed -i "s/^appVersion:.*/appVersion: \"${version}\"/" charts/pacto-operator/Chart.yaml
 
       - name: Regenerate chart README
-        uses: losisin/helm-docs-github-action@v1.8.0
+        uses: losisin/helm-docs-github-action@v2.0.0
         with:
           chart-search-root: charts
 
