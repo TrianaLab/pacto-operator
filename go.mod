@@ -3,9 +3,9 @@ module github.com/trianalab/pacto-operator
 go 1.26.0
 
 require (
-	github.com/google/go-containerregistry v0.21.5
+	github.com/google/go-containerregistry v0.21.6
 	github.com/onsi/ginkgo/v2 v2.29.0
-	github.com/onsi/gomega v1.40.0
+	github.com/onsi/gomega v1.41.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.65.0
 	go.opentelemetry.io/otel/sdk/metric v1.43.0
 	k8s.io/apimachinery v0.36.1
@@ -15,18 +15,15 @@ require (
 
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
-	github.com/containerd/stargz-snapshotter/estargz v0.18.2 // indirect
-	github.com/docker/cli v29.4.0+incompatible // indirect
+	github.com/docker/cli v29.4.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
-	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
-	github.com/vbatts/tar-split v0.12.2 // indirect
 	k8s.io/streaming v0.36.1 // indirect
 )
 
@@ -87,15 +84,15 @@ require (
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 // indirect
-	golang.org/x/mod v0.35.0 // indirect
-	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/mod v0.36.0 // indirect
+	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
-	golang.org/x/term v0.42.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/term v0.43.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
-	golang.org/x/tools v0.44.0 // indirect
+	golang.org/x/tools v0.45.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
