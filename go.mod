@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/google/go-containerregistry v0.21.5
 	github.com/onsi/ginkgo/v2 v2.29.0
-	github.com/onsi/gomega v1.40.0
+	github.com/onsi/gomega v1.41.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.65.0
 	go.opentelemetry.io/otel/sdk/metric v1.43.0
 	k8s.io/apimachinery v0.36.1
