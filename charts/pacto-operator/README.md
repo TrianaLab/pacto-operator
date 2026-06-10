@@ -31,7 +31,7 @@ What the chart installs:
 
 - Controller `Deployment` with health and readiness probes
 - `ServiceAccount`, `ClusterRole`, and `ClusterRoleBinding` for RBAC
-- Metrics `Service` (HTTPS by default on port 8443)
+- Metrics `Service` on port 8443 (HTTPS by default with the chart's `metrics.secure=true`; see [Metrics and Observability](#metrics-and-observability))
 - CRDs: `Pacto` and `PactoRevision` (from the `crds/` directory)
 - Optional: Prometheus `ServiceMonitor`
 
@@ -89,8 +89,6 @@ The `spec.contractRef.oci` field supports three forms that control version resol
 | Tagged | `ghcr.io/org/my-service:1.2.3` | Pinned to that exact tag. No automatic version updates. |
 | Digest | `ghcr.io/org/my-service@sha256:abc...` | Immutable. Always resolves to this exact content. |
 
-The resolved mode is reported in `status.resolutionPolicy` (`Latest`, `PinnedTag`, or `PinnedDigest`).
-
 ```yaml
 # Track latest — operator auto-resolves highest semver tag
 spec:
@@ -108,18 +106,34 @@ spec:
     oci: ghcr.io/my-org/contracts/my-service@sha256:abcdef...
 ```
 
+#### Resolved mode
+
+The resolved mode is **auto-detected from the shape of the reference** and reported in `status.resolutionPolicy`:
+
+- **No tag and no digest** → `Latest`. The operator resolves the highest semver tag and **re-resolves on every reconciliation**, so the pinned content can drift as new tags are published.
+- **An exact tag** (`:1.2.3`) → `PinnedTag`. Used as-is, no automatic updates.
+- **An `@sha256:` digest** → `PinnedDigest`. Immutable, always the same content.
+
+#### Registry credentials
+
+The operator pulls contracts using the credential paths described under [Private OCI Registries](#private-oci-registries). When both are configured, `dashboard.ociSecrets` (plural list) **takes precedence over** `dashboard.ociSecret` (singular). Opaque secrets used for dashboard credentials **must** include a `registry` key naming the target hostname, because go-containerregistry performs exact hostname matching.
+
 ## Dashboard
 
-The dashboard is **enabled by default**. The operator manages the dashboard Deployment, internal Service (`pacto-dashboard`, ClusterIP), ServiceAccount, and RBAC. The dashboard image version is automatically determined by the Pacto library version bundled into the controller — it is not user-configurable.
+The dashboard is **enabled by default**. The operator manages the dashboard Deployment, internal Service (`pacto-dashboard`, ClusterIP), ServiceAccount, and RBAC.
+
+The dashboard image is **injected into the controller binary at build time via ldflags** (a `dashboardImage` variable in the `cmd` package), which couples the dashboard version to the Pacto library the controller was built against. It is **not** overridable through Helm values or any runtime flag. If the dashboard is enabled but the binary was built without this ldflag (so `dashboardImage` is empty), the controller fails to start — the dashboard cannot be deployed from a binary that lacks an embedded image reference.
 
 The chart creates a separate exposure Service (`<release>-pacto-operator-dashboard`) with configurable type, plus optional Ingress and HTTPRoute resources. The operator owns the lifecycle; the chart owns the networking. These are distinct concerns:
 
 | Resource | Managed by | Purpose |
 |----------|-----------|---------|
-| `pacto-dashboard` Service | Operator | Internal ClusterIP, always present when dashboard is enabled |
-| `<release>-pacto-operator-dashboard` Service | Chart | Configurable type (ClusterIP/NodePort/LoadBalancer), backend for Ingress/HTTPRoute |
+| `pacto-dashboard` Service | Operator | Internal ClusterIP on port 3000, always present when dashboard is enabled |
+| `<release>-pacto-operator-dashboard` Service | Chart | Configurable type (ClusterIP/NodePort/LoadBalancer) on port 3000 (`dashboard.service.port`), backend for Ingress/HTTPRoute |
 | Ingress | Chart | Optional, references the chart-managed Service |
 | HTTPRoute | Chart | Optional, references the chart-managed Service. When `rules` is empty, a catch-all rule routes all traffic to the dashboard |
+
+In total a chart install can stand up **three** Services: the metrics Service on port 8443 (see [Metrics and Observability](#metrics-and-observability)), the operator-managed internal `pacto-dashboard` ClusterIP on port 3000, and the chart-managed dashboard exposure Service on port 3000 (whose type is configurable via `dashboard.service.type`).
 
 ### Private OCI Registries
 
@@ -289,7 +303,9 @@ The dashboard inherits this scope automatically.
 
 ## Metrics and Observability
 
-The controller exposes Prometheus metrics via OpenTelemetry. By default, the metrics endpoint is served over HTTPS on port 8443.
+The controller exposes Prometheus metrics via OpenTelemetry on port 8443.
+
+> **HTTPS default depends on how you run it.** The chart sets `metrics.secure=true` by default, so a Helm install serves metrics over HTTPS. The controller binary, however, defaults to `--metrics-secure=false` — a direct binary run serves plain HTTP unless you pass `--metrics-secure=true`. Authentication and authorization (the metrics auth FilterProvider) are enabled **only** when secure mode is on; in plain-HTTP mode the endpoint is unauthenticated.
 
 | Metric | Type | Description |
 |--------|------|-------------|
@@ -321,7 +337,7 @@ The chart follows security best practices by default:
 - Read-only root filesystem
 - All capabilities dropped
 - Seccomp profile set to `RuntimeDefault`
-- Metrics endpoint served over HTTPS with authentication
+- Metrics endpoint served over HTTPS with authentication (chart default `metrics.secure=true`; the binary default is `--metrics-secure=false`)
 
 ## Artifact Verification
 
