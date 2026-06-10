@@ -2505,6 +2505,102 @@ func TestReconcile_ObserverError_SetsUnknownWithSummary(t *testing.T) {
 	}
 }
 
+// TestReconcile_ReadinessWiring_GateUnmetEmitsEvent drives the FULL Reconcile()
+// path for a pactoVersion 1.1 readiness contract whose gate is unmet, asserting
+// that reconcile wires reconcileReadiness end-to-end: status.readiness is
+// populated, the ReadinessSatisfied condition is set (False/BelowMinScore), and a
+// Warning ReadinessGateUnmet event flows through the recorder on the gate
+// transition. The existing readiness unit tests call reconcileReadiness directly
+// with a fake recorder; this covers the Reconcile->reconcileReadiness wiring that
+// a regression could silently break while every unit test still passes.
+//
+// (The Invalid reason is intentionally not exercised here: validation rejects a
+// malformed expires with INVALID_READINESS_EXPIRES before readiness runs, so an
+// Invalid check is unreachable through full Reconcile — it is covered at the
+// reconcileReadiness unit level in readiness_test.go.)
+func TestReconcile_ReadinessWiring_GateUnmetEmitsEvent(t *testing.T) {
+	const rdYAML = `pactoVersion: "1.1"
+service:
+  name: rd-recon-svc
+  version: 1.0.0
+readiness:
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.example.com/d/rd
+      weight: 60
+      expires: "2099-12-31"
+    - id: security-review
+      type: ticket
+      evidence: SEC-1842
+      weight: 40
+      expires: "2000-01-15"
+`
+	c, err := contract.Parse(strings.NewReader(rdYAML))
+	if err != nil {
+		t.Fatalf("parse readiness contract: %v", err)
+	}
+
+	// Reference-only (no Target) so observation is skipped; readiness still runs.
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "rd-test", Namespace: "default"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: rdYAML},
+		},
+	}
+
+	s := newScheme()
+	rec := record.NewFakeRecorder(20)
+	r := &PactoReconciler{
+		Client: fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).
+			WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).Build(),
+		Scheme:   s,
+		Recorder: rec,
+		Loader: &mockLoader{
+			loadFn: func(_ context.Context, _, _ string) (*loader.LoadResult, error) {
+				return &loader.LoadResult{Contract: c, RawYAML: []byte(rdYAML)}, nil
+			},
+		},
+	}
+
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKey{Name: "rd-test", Namespace: "default"},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	updated := &pactov1alpha1.Pacto{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: "rd-test", Namespace: "default"}, updated); err != nil {
+		t.Fatalf("get updated pacto: %v", err)
+	}
+
+	// status.readiness populated through the full reconcile (score 60: dashboard
+	// current, security-review expired).
+	if updated.Status.Readiness == nil {
+		t.Fatal("expected status.readiness to be populated by Reconcile")
+	}
+	if updated.Status.Readiness.Score != 60 {
+		t.Errorf("readiness score = %d, want 60", updated.Status.Readiness.Score)
+	}
+
+	// ReadinessSatisfied condition wired: gate unmet (score 60 < default minScore 100).
+	cond := meta.FindStatusCondition(updated.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != pactov1alpha1.ReasonReadinessBelowMinScore {
+		t.Fatalf("expected ReadinessSatisfied=False/BelowMinScore, got %+v", cond)
+	}
+
+	// Gate-transition Warning event emitted through the real recorder.
+	found := false
+	for _, e := range drainEvents(rec) {
+		if strings.Contains(e, pactov1alpha1.EventReadinessGateUnmet) && strings.Contains(e, "Warning") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a Warning ReadinessGateUnmet event through the full reconcile path")
+	}
+}
+
 // ---------- computeFinalContractStatus ----------
 
 func TestComputeFinalContractStatus_AllPassing(t *testing.T) {
