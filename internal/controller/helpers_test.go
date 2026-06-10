@@ -576,15 +576,15 @@ func TestPopulateContractStatus_SchemaContent(t *testing.T) {
 			Service: contract.ServiceIdentity{Name: "redis", Version: "1.0.0"},
 			Configurations: []contract.ConfigurationSource{
 				{Name: "provisioning", Schema: "config/schema.json"}, // schema, no values
-				{Name: "empty", Schema: "empty/schema.json"},          // schema with no properties
-				{Name: "missing", Schema: "config/missing.json"},      // schema file absent
+				{Name: "empty", Schema: "empty/schema.json"},         // schema with no properties
+				{Name: "missing", Schema: "config/missing.json"},     // schema file absent
 			},
 			Policies: []contract.PolicySource{
 				{Name: "redis", Schema: "policy/schema.json"},
 				{Name: "no-schema-file", Schema: "policy/missing.json"},
 			},
 		},
-		RawYAML: []byte("test"),
+		RawYAML:  []byte("test"),
 		BundleFS: bundle,
 	}
 
