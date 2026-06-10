@@ -93,6 +93,39 @@ spec:
                         - kubernetes.io/dockerconfigjson (standard Docker registry auth)
                     type: string
                 type: object
+              overrides:
+                description: |-
+                  Overrides specifies partial configuration overrides to apply on top of the resolved contract.
+                  This enables environment-specific tuning without duplicating the entire contract inline.
+                  Semantics mirror the Pacto CLI --set / -f override model.
+                properties:
+                  configurations:
+                    description: |-
+                      Configurations lists per-scope configuration value overrides.
+                      Each entry is matched by name to a configurations[] entry in the resolved contract.
+                    items:
+                      description: ConfigurationOverride specifies value overrides
+                        for a single named configuration scope.
+                      properties:
+                        name:
+                          description: Name identifies the configuration scope to
+                            override (must match a configurations[] entry in the contract).
+                          minLength: 1
+                          type: string
+                        values:
+                          additionalProperties:
+                            type: string
+                          description: |-
+                            Values contains the configuration key-value pairs to merge into the resolved contract.
+                            These values take precedence over the values declared in the contract.
+                          minProperties: 1
+                          type: object
+                      required:
+                      - name
+                      - values
+                      type: object
+                    type: array
+                type: object
               target:
                 description: |-
                   Target specifies which Kubernetes resources to observe.
@@ -204,6 +237,38 @@ spec:
                       description: Name is the configuration scope name (required,
                         unique within contract).
                       type: string
+                    overriddenKeys:
+                      description: |-
+                        OverriddenKeys lists configuration keys whose values were overridden
+                        by spec.overrides.configurations. Empty when no overrides apply.
+                      items:
+                        type: string
+                      type: array
+                    properties:
+                      description: |-
+                        Properties lists the configuration's declared keys with their type and
+                        default/value, extracted from the bundled schema (or literal values), so
+                        consumers can render configuration content without re-reading the bundle.
+                      items:
+                        description: |-
+                          SchemaProperty is a flattened key from a configuration or policy schema
+                          (or a configuration values map), suitable for display by consumers.
+                        properties:
+                          key:
+                            description: Key is the property name (dot-notation for
+                              nested objects).
+                            type: string
+                          type:
+                            description: Type is the JSON Schema type of the property.
+                            type: string
+                          value:
+                            description: Value is the default (for schema properties)
+                              or the literal value.
+                            type: string
+                        required:
+                        - key
+                        type: object
+                      type: array
                     ref:
                       description: Ref is the external OCI reference for the configuration
                         schema, if used.
@@ -503,6 +568,10 @@ spec:
                     Each policy provides either a local JSON Schema file or a reference to an
                     external contract whose bundle contains the policy schema.
                   properties:
+                    description:
+                      description: Description is the policy schema's declared description,
+                        if any.
+                      type: string
                     hasSchema:
                       description: HasSchema indicates whether a policy schema file
                         is bundled.
@@ -511,6 +580,30 @@ spec:
                       description: Name is the policy name (required, unique within
                         contract).
                       type: string
+                    properties:
+                      description: |-
+                        Properties lists the policy schema's keys with their type and default, so
+                        consumers can render policy content without re-reading the bundle.
+                      items:
+                        description: |-
+                          SchemaProperty is a flattened key from a configuration or policy schema
+                          (or a configuration values map), suitable for display by consumers.
+                        properties:
+                          key:
+                            description: Key is the property name (dot-notation for
+                              nested objects).
+                            type: string
+                          type:
+                            description: Type is the JSON Schema type of the property.
+                            type: string
+                          value:
+                            description: Value is the default (for schema properties)
+                              or the literal value.
+                            type: string
+                        required:
+                        - key
+                        type: object
+                      type: array
                     ref:
                       description: Ref is the external OCI reference for the policy
                         schema, if used.
@@ -518,6 +611,10 @@ spec:
                     schema:
                       description: Schema is the bundle-relative path to the policy
                         schema file, if local.
+                      type: string
+                    title:
+                      description: Title is the policy schema's declared title, if
+                        any.
                       type: string
                   required:
                   - hasSchema
@@ -553,6 +650,96 @@ spec:
                       format: int32
                       type: integer
                     type: array
+                type: object
+              readiness:
+                description: |-
+                  Readiness is the derived operational readiness assessment of the contract.
+                  It is computed from the contract's declared readiness checks and the current
+                  time. It is a separate dimension from contract compliance and does NOT affect
+                  ContractStatus. Absent when the contract declares no readiness.
+                properties:
+                  checks:
+                    description: Checks is the derived per-check readiness status.
+                    items:
+                      description: ReadinessCheckStatus is the derived state of a
+                        single readiness check.
+                      properties:
+                        daysRemaining:
+                          description: DaysRemaining is the number of whole days until
+                            expiry, for current checks.
+                          format: int32
+                          type: integer
+                        description:
+                          description: Description is the optional human-readable
+                            explanation.
+                          type: string
+                        evidence:
+                          description: Evidence is the declared pointer to the evidence.
+                          type: string
+                        expires:
+                          description: Expires is the declared freshness boundary
+                            (YYYY-MM-DD).
+                          type: string
+                        id:
+                          description: ID is the readiness requirement identifier
+                            (e.g. dashboard, runbook).
+                          type: string
+                        status:
+                          description: Status is the derived check status.
+                          enum:
+                          - Current
+                          - Expired
+                          - Invalid
+                          type: string
+                        type:
+                          description: Type classifies the evidence pointer (url,
+                            document, ticket, report, artifact, identifier, other).
+                          type: string
+                        weight:
+                          description: Weight is the declared contribution to the
+                            readiness score (0-100).
+                          format: int32
+                          type: integer
+                      required:
+                      - evidence
+                      - expires
+                      - id
+                      - status
+                      - type
+                      - weight
+                      type: object
+                    type: array
+                  currentCount:
+                    description: CurrentCount is the number of current checks.
+                    format: int32
+                    type: integer
+                  currentWeight:
+                    description: CurrentWeight is the sum of weights of non-expired
+                      (current) checks.
+                    format: int32
+                    type: integer
+                  expiredCount:
+                    description: ExpiredCount is the number of expired checks.
+                    format: int32
+                    type: integer
+                  minScore:
+                    description: MinScore is the gate threshold (the declared readiness.minScore,
+                      or 100 when omitted).
+                    format: int32
+                    type: integer
+                  passing:
+                    description: Passing reports whether the readiness gate is met
+                      (Score >= MinScore).
+                    type: boolean
+                  score:
+                    description: Score is the percentage of declared weight that is
+                      currently satisfied (0-100).
+                    format: int32
+                    type: integer
+                  totalWeight:
+                    description: TotalWeight is the sum of all declared check weights.
+                    format: int32
+                    type: integer
                 type: object
               resolutionPolicy:
                 description: |-

@@ -185,6 +185,51 @@ policies:
   - name: ops
     schema: ops-policy.json
 `
+
+	// contractReadinessAllCurrent is a 1.1 reference contract whose readiness
+	// checks are all current (far-future expiry → deterministic regardless of
+	// when the suite runs).
+	contractReadinessAllCurrent = `
+pactoVersion: "1.1"
+service:
+  name: readiness-current-svc
+  version: 1.0.0
+  owner: team-readiness
+readiness:
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.example.com/d/readiness-current
+      weight: 60
+      expires: "2099-12-31"
+    - id: runbook
+      type: document
+      evidence: docs/runbooks/readiness-current.md
+      weight: 40
+      expires: "2099-09-30"
+`
+
+	// contractReadinessMixed is a 1.1 reference contract with one current and one
+	// expired check (far-past expiry → always expired).
+	contractReadinessMixed = `
+pactoVersion: "1.1"
+service:
+  name: readiness-mixed-svc
+  version: 1.0.0
+  owner: team-readiness
+readiness:
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.example.com/d/readiness-mixed
+      weight: 70
+      expires: "2099-12-31"
+    - id: security-review
+      type: ticket
+      evidence: SEC-1
+      weight: 30
+      expires: "2000-01-15"
+`
 )
 
 var _ = Describe("Operator", Ordered, func() {
@@ -726,6 +771,66 @@ var _ = Describe("Operator", Ordered, func() {
 
 	// ── G. Metrics Verification ───────────────────────────────────────────
 
+	// ── Readiness (derived operational readiness) ─────────────────────────
+	Context("Readiness", Ordered, func() {
+		It("populates status.readiness and ReadinessChecksCurrent=True when all checks are current", func() {
+			name := "e2e-readiness-current"
+			applyPacto(name, testNamespace, contractReadinessAllCurrent, "", nil)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.Readiness).NotTo(BeNil(), "expected status.readiness to be populated")
+				g.Expect(status.Readiness.Score).To(Equal(float64(100)))
+				g.Expect(status.Readiness.TotalWeight).To(Equal(float64(100)))
+				g.Expect(status.Readiness.CurrentCount).To(Equal(float64(2)))
+				g.Expect(status.Readiness.ExpiredCount).To(Equal(float64(0)))
+				g.Expect(status.Readiness.Checks).To(HaveLen(2))
+
+				cond := findCondition(status.Conditions, "ReadinessSatisfied")
+				g.Expect(cond).NotTo(BeNil(), "expected ReadinessChecksCurrent condition")
+				g.Expect(cond.Status).To(Equal("True"))
+				g.Expect(cond.Reason).To(Equal("Satisfied"))
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("sets ReadinessChecksCurrent=False (ReadinessExpired) without affecting contractStatus", func() {
+			name := "e2e-readiness-expired"
+			applyPacto(name, testNamespace, contractReadinessMixed, "", nil)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.Readiness).NotTo(BeNil())
+				g.Expect(status.Readiness.Score).To(Equal(float64(70)))
+				g.Expect(status.Readiness.ExpiredCount).To(Equal(float64(1)))
+				g.Expect(status.Readiness.CurrentCount).To(Equal(float64(1)))
+
+				cond := findCondition(status.Conditions, "ReadinessSatisfied")
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal("False"))
+				g.Expect(cond.Reason).To(Equal("BelowMinScore"))
+
+				// Readiness is a separate dimension — an expired check must not make
+				// an otherwise-valid reference contract non-compliant.
+				g.Expect(status.ContractStatus).To(Equal("Reference"))
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("omits status.readiness when the contract declares none", func() {
+			name := "e2e-readiness-absent"
+			applyPacto(name, testNamespace, contractSimple, "", nil)
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("Reference"))
+				g.Expect(status.Readiness).To(BeNil())
+				g.Expect(findCondition(status.Conditions, "ReadinessSatisfied")).To(BeNil())
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+	})
+
 	Context("Metrics", Ordered, func() {
 		It("should expose pacto-specific metrics on the metrics endpoint", func() {
 			By("creating a ClusterRoleBinding for metrics access")
@@ -797,7 +902,26 @@ type pactoStatus struct {
 	ObservedRuntime    *observedRuntime    `json:"observedRuntime"`
 	Configurations     []configurationInfo `json:"configurations"`
 	Policies           []policyInfo        `json:"policies"`
+	Readiness          *readinessStatus    `json:"readiness"`
 	Conditions         []condition         `json:"conditions"`
+}
+
+type readinessStatus struct {
+	Score         float64                `json:"score"`
+	TotalWeight   float64                `json:"totalWeight"`
+	CurrentWeight float64                `json:"currentWeight"`
+	CurrentCount  float64                `json:"currentCount"`
+	ExpiredCount  float64                `json:"expiredCount"`
+	Checks        []readinessCheckStatus `json:"checks"`
+}
+
+type readinessCheckStatus struct {
+	ID            string   `json:"id"`
+	Type          string   `json:"type"`
+	Status        string   `json:"status"`
+	Weight        float64  `json:"weight"`
+	Expires       string   `json:"expires"`
+	DaysRemaining *float64 `json:"daysRemaining"`
 }
 
 type configurationInfo struct {
@@ -862,6 +986,16 @@ type condition struct {
 	Type   string `json:"type"`
 	Status string `json:"status"`
 	Reason string `json:"reason"`
+}
+
+// findCondition returns the condition of the given type, or nil if absent.
+func findCondition(conds []condition, condType string) *condition {
+	for i := range conds {
+		if conds[i].Type == condType {
+			return &conds[i]
+		}
+	}
+	return nil
 }
 
 type revisionJSON struct {

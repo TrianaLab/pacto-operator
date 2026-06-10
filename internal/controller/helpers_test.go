@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -26,6 +27,7 @@ import (
 	"github.com/trianalab/pacto/pkg/validation"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -442,6 +444,13 @@ func TestPopulateContractStatus_Full(t *testing.T) {
 	if cfg.SecretKeys[0] != "db_password" {
 		t.Fatalf("expected db_password secret key, got %s", cfg.SecretKeys[0])
 	}
+	// Config has literal values → Properties surfaced from them (sorted).
+	if len(cfg.Properties) != 3 {
+		t.Fatalf("expected 3 config properties, got %d", len(cfg.Properties))
+	}
+	if cfg.Properties[0].Key != "db_host" || cfg.Properties[0].Value != "localhost" || cfg.Properties[0].Type != "string" {
+		t.Fatalf("unexpected first config property: %+v", cfg.Properties[0])
+	}
 
 	// Dependencies
 	if len(pacto.Status.Dependencies) != 2 {
@@ -545,6 +554,96 @@ func TestPopulateContractStatus_Full(t *testing.T) {
 	}
 	if pacto.Status.Metadata["priority"] != "1" {
 		t.Fatalf("expected 1 (string), got %s", pacto.Status.Metadata["priority"])
+	}
+}
+
+func TestPopulateContractStatus_SchemaContent(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "redis", Namespace: "default"},
+	}
+
+	bundle := fstest.MapFS{
+		"config/schema.json": &fstest.MapFile{Data: []byte(
+			`{"properties":{"maxMemory":{"type":"string","default":"256mb"},"evictionPolicy":{"type":"string"}}}`)},
+		"policy/schema.json": &fstest.MapFile{Data: []byte(
+			`{"title":"Redis Policy","description":"Redis hardening rules","properties":{"tlsRequired":{"type":"boolean","default":true}}}`)},
+		"empty/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+	}
+
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service: contract.ServiceIdentity{Name: "redis", Version: "1.0.0"},
+			Configurations: []contract.ConfigurationSource{
+				{Name: "provisioning", Schema: "config/schema.json"}, // schema, no values
+				{Name: "empty", Schema: "empty/schema.json"},          // schema with no properties
+				{Name: "missing", Schema: "config/missing.json"},      // schema file absent
+			},
+			Policies: []contract.PolicySource{
+				{Name: "redis", Schema: "policy/schema.json"},
+				{Name: "no-schema-file", Schema: "policy/missing.json"},
+			},
+		},
+		RawYAML: []byte("test"),
+		BundleFS: bundle,
+	}
+
+	r.populateContractStatus(pacto, lr)
+
+	// Config: schema-only entry surfaces properties from the bundled schema.
+	prov := pacto.Status.Configurations[0]
+	if len(prov.Properties) != 2 {
+		t.Fatalf("expected 2 properties for provisioning, got %+v", prov.Properties)
+	}
+	// Sorted: evictionPolicy before maxMemory.
+	if prov.Properties[0].Key != "evictionPolicy" || prov.Properties[0].Value != "(any)" {
+		t.Fatalf("unexpected first property: %+v", prov.Properties[0])
+	}
+	if prov.Properties[1].Key != "maxMemory" || prov.Properties[1].Value != "256mb" || prov.Properties[1].Type != "string" {
+		t.Fatalf("unexpected maxMemory property: %+v", prov.Properties[1])
+	}
+	// Schema with no properties → nil.
+	if pacto.Status.Configurations[1].Properties != nil {
+		t.Fatalf("expected nil properties for empty schema, got %+v", pacto.Status.Configurations[1].Properties)
+	}
+	// Missing schema file → nil.
+	if pacto.Status.Configurations[2].Properties != nil {
+		t.Fatalf("expected nil properties for missing schema, got %+v", pacto.Status.Configurations[2].Properties)
+	}
+
+	// Policy: title/description + properties from the bundled schema.
+	pol := pacto.Status.Policies[0]
+	if pol.Title != "Redis Policy" || pol.Description != "Redis hardening rules" {
+		t.Fatalf("unexpected policy meta: %+v", pol)
+	}
+	if len(pol.Properties) != 1 || pol.Properties[0].Key != "tlsRequired" || pol.Properties[0].Type != "boolean" {
+		t.Fatalf("unexpected policy properties: %+v", pol.Properties)
+	}
+	// Policy with a missing schema file → no content, no meta.
+	missing := pacto.Status.Policies[1]
+	if missing.Properties != nil || missing.Title != "" || missing.Description != "" {
+		t.Fatalf("expected empty content for missing policy schema, got %+v", missing)
+	}
+}
+
+func TestPopulateContractStatus_SchemaContentNilBundle(t *testing.T) {
+	r := newReconciler()
+	pacto := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "default"}}
+	lr := &loader.LoadResult{
+		Contract: &contract.Contract{
+			Service:        contract.ServiceIdentity{Name: "x", Version: "1.0.0"},
+			Configurations: []contract.ConfigurationSource{{Name: "c", Schema: "config/schema.json"}},
+			Policies:       []contract.PolicySource{{Name: "p", Schema: "policy/schema.json"}},
+		},
+		RawYAML:  []byte("test"),
+		BundleFS: nil, // inline contract: no bundle FS
+	}
+	r.populateContractStatus(pacto, lr)
+	if pacto.Status.Configurations[0].Properties != nil {
+		t.Fatalf("expected nil config properties with nil bundle, got %+v", pacto.Status.Configurations[0].Properties)
+	}
+	if pacto.Status.Policies[0].Properties != nil || pacto.Status.Policies[0].Title != "" {
+		t.Fatalf("expected empty policy content with nil bundle, got %+v", pacto.Status.Policies[0])
 	}
 }
 
@@ -2395,8 +2494,14 @@ func TestReconcile_ObserverError_SetsUnknownWithSummary(t *testing.T) {
 	if updated.Status.Summary == nil {
 		t.Fatal("expected Summary to be set on observer error path")
 	}
-	if updated.Status.Summary.Total != 1 || updated.Status.Summary.Passed != 1 {
-		t.Fatalf("expected Summary{1,1,0}, got %+v", updated.Status.Summary)
+	// Observation failure must NOT read as success: summary reports a failed check.
+	if updated.Status.Summary.Total != 1 || updated.Status.Summary.Passed != 0 || updated.Status.Summary.Failed != 1 {
+		t.Fatalf("expected Summary{Total:1,Passed:0,Failed:1}, got %+v", updated.Status.Summary)
+	}
+	// And a RuntimeObserved=False condition is set with the ObservationFailed reason.
+	cond := meta.FindStatusCondition(updated.Status.Conditions, pactov1alpha1.ConditionRuntimeObserved)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != pactov1alpha1.ReasonObservationFailed {
+		t.Fatalf("expected RuntimeObserved=False/ObservationFailed condition, got %+v", cond)
 	}
 }
 

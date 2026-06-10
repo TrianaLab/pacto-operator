@@ -74,6 +74,26 @@ type ResourcesConfig struct {
 	MemoryLimit   string
 }
 
+// Validate checks that any provided resource quantity overrides are parseable,
+// so an invalid --dashboard-cpu-request (etc.) fails fast at operator startup
+// instead of panicking via MustParse during the first reconcile.
+func (rc ResourcesConfig) Validate() error {
+	for _, q := range []struct{ name, val string }{
+		{"cpu-request", rc.CPURequest},
+		{"cpu-limit", rc.CPULimit},
+		{"memory-request", rc.MemoryRequest},
+		{"memory-limit", rc.MemoryLimit},
+	} {
+		if q.val == "" {
+			continue
+		}
+		if _, err := resource.ParseQuantity(q.val); err != nil {
+			return fmt.Errorf("invalid dashboard %s quantity %q: %w", q.name, q.val, err)
+		}
+	}
+	return nil
+}
+
 // DefaultResources returns the built-in default resource requirements.
 func DefaultResources() corev1.ResourceRequirements {
 	return corev1.ResourceRequirements{
@@ -119,6 +139,9 @@ func (c Config) Validate() error {
 	// Reject "latest" tag
 	if hasLatestTag(c.Image) {
 		return fmt.Errorf("dashboard image must not use 'latest' tag: %s", c.Image)
+	}
+	if err := c.Resources.Validate(); err != nil {
+		return err
 	}
 	return nil
 }

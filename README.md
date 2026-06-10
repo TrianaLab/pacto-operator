@@ -87,6 +87,22 @@ Error-severity failures set the contract status to `NonCompliant`. Warning-sever
 
 ---
 
+## Readiness
+
+When a contract declares a `readiness` section (a `pactoVersion: "1.1"` feature), the operator computes a derived readiness assessment and writes it to **`status.readiness`** — `score`, `minScore`, `passing`, `totalWeight`, `currentWeight`, `currentCount`, `expiredCount`, and a per-check list (`status` ∈ `Current`/`Expired`/`Invalid`, plus `daysRemaining`). It is computed from the declared `weight`/`expires`/`minScore` values and the current time; the evidence targets are never fetched or verified.
+
+Readiness is a **separate dimension** from contract compliance — it never changes `ContractStatus`. The operator surfaces the gate (`score >= minScore`, `minScore` defaulting to 100) through one aggregate condition, **`ReadinessSatisfied`**:
+
+| Status | Reason | Meaning |
+|--------|--------|---------|
+| `True`  | `Satisfied`     | the readiness score meets `minScore` |
+| `False` | `BelowMinScore` | the score is below `minScore` (e.g. checks expired) |
+| `False` | `Invalid`       | a check has an unparseable expiry date |
+
+On gate transitions it emits events sparingly: a `Warning`/`ReadinessGateUnmet` when the gate first drops and a `Normal`/`ReadinessRecovered` when it is met again. Contracts without readiness get neither `status.readiness` nor the condition.
+
+---
+
 ## CRDs
 
 ### Pacto

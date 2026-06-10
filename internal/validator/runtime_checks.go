@@ -295,8 +295,14 @@ func imageMatches(expected, actual string) bool {
 		return true
 	}
 
-	// If expected has a tag/digest, require exact match after normalization
-	if strings.Contains(expected, ":") || strings.Contains(expected, "@") {
+	// If expected has a tag/digest, require exact match after normalization.
+	// Detect the tag/digest only AFTER the last '/' so a registry port
+	// (e.g. localhost:5000/img) is not mistaken for a tag.
+	expectedTail := expected
+	if i := strings.LastIndex(expected, "/"); i >= 0 {
+		expectedTail = expected[i+1:]
+	}
+	if strings.Contains(expectedTail, ":") || strings.Contains(expectedTail, "@") {
 		return false
 	}
 
@@ -314,8 +320,9 @@ func imageMatches(expected, actual string) bool {
 
 // normalizeImageRef adds docker.io/library/ prefix for short docker hub references.
 func normalizeImageRef(ref string) string {
-	// Already fully qualified
-	if strings.Contains(ref, "/") && strings.Contains(strings.Split(ref, "/")[0], ".") {
+	// Already fully qualified: the first path segment is a registry host if it
+	// contains a '.' (domain) or ':' (port), e.g. ghcr.io/... or localhost:5000/...
+	if strings.Contains(ref, "/") && strings.ContainsAny(strings.Split(ref, "/")[0], ".:") {
 		return ref
 	}
 	// Single name like "nginx" → "docker.io/library/nginx"
