@@ -37,3 +37,6 @@ dist/
 
 # Coverage
 coverage.html
+
+# Local-dev operator binary (host-built; not committed)
+cmd/manager-local.bin

@@ -1,7 +1,0 @@
-# Local-dev image: bakes the host-built manager (compiled against ../pacto via the
-# go.mod replace) so the operator runs with the readiness changes. Not for release.
-FROM gcr.io/distroless/static:nonroot
-WORKDIR /
-COPY cmd/manager-local.bin /manager
-USER 65532:65532
-ENTRYPOINT ["/manager"]
