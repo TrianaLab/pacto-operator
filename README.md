@@ -63,7 +63,7 @@ Each reconciliation follows a fixed pipeline:
 
 1. **Loader** resolves the contract from an OCI registry (auto-selecting the highest semver tag) or parses inline YAML.
 2. **Observer** reads runtime state from the Kubernetes API — workload kind, strategy, images, probes, volumes, termination grace period.
-3. **Validator** is a pure function: `(contract, snapshot) → result`. No side effects.
+3. **Validator** is a pure function: `(contract, snapshot, hasService) → result`. The `hasService` flag tells the validator whether a runtime target was bound, so it can distinguish a missing Service from reference-only mode. No side effects.
 4. **Controller** coordinates the pipeline, creates `PactoRevision` snapshots for each resolved version, and updates the CR status with structured conditions, a contract compliance status, and metrics.
 
 ---
@@ -83,7 +83,31 @@ The following checks run on each reconciliation. These are the current built-in 
 
 Error-severity failures set the contract status to `NonCompliant`. Warning-severity failures set it to `Warning`. When all checks pass, the status is `Compliant`.
 
+These runtime checks are **structural-only**: they compare the declared contract (image, upgrade strategy, probe timing, storage, workload type, state model) against the observed workload spec — no traffic is sent. Separately, the operator probes the contract's declared **health and metrics endpoints** for reachability. Those probes are asynchronous network calls; their results are recorded in `status.endpoints` and as `HealthEndpointValid`/`MetricsEndpointValid` conditions. A failed endpoint probe surfaces as a `Warning` — it does not drive the contract to `NonCompliant` the way a missing Service or workload (a structural failure) does.
+
 > **Note:** `ContractStatus` reflects contract validation/compliance, not runtime health.
+
+---
+
+## Readiness
+
+The `readiness` section requires `pactoVersion: "1.1"` — this is structurally enforced by the contract JSON schema, so contracts that declare `readiness` under an older `pactoVersion` are rejected by the CLI before they ever reach the operator.
+
+When a contract declares a `readiness` section, the operator computes a derived readiness assessment and writes it to **`status.readiness`** — `score`, `minScore`, `passing`, `totalWeight`, `currentWeight`, `currentCount`, `expiredCount`, and a per-check list (`status` ∈ `Current`/`Expired`/`Invalid`, plus `daysRemaining`). It is computed from the declared `weight`/`expires`/`minScore` values and the current time; the evidence targets are never fetched or verified.
+
+Readiness is a **separate dimension** from contract compliance — it never changes `ContractStatus`. The operator surfaces the gate (`score >= minScore`, with `minScore` defaulting to 100 when omitted) through one aggregate condition, **`ReadinessSatisfied`**:
+
+| Status | Reason | Meaning |
+|--------|--------|---------|
+| `True`  | `Satisfied`     | the readiness score meets `minScore` |
+| `False` | `Invalid`       | the gate is unmet **and** at least one check has an unparseable `expires` date |
+| `False` | `BelowMinScore` | the gate is unmet with all expiry dates parseable (e.g. checks expired) |
+
+The reason precedence when the gate is unmet is: `Invalid` whenever any check has an invalid expiry (`InvalidCount > 0`), otherwise `BelowMinScore`.
+
+On gate transitions it emits events sparingly: a `Warning`/`ReadinessGateUnmet` when the gate first drops and a `Normal`/`ReadinessRecovered` when it is met again. Contracts without readiness get neither `status.readiness` nor the condition.
+
+For the canonical score and gate semantics, see the [readiness reference](https://trianalab.github.io/pacto/contract-reference/#readiness) in the CLI docs.
 
 ---
 
@@ -101,7 +125,7 @@ A `Pacto` resource binds a contract source to an optional runtime target:
 - **Private registries**: set `spec.contractRef.pullSecretRef` to the name of a Kubernetes Secret (in the same namespace) containing OCI credentials. See [Private OCI Registries](#private-oci-registries).
 - **Target**: a Kubernetes Service (`spec.target.serviceName`) and workload (`spec.target.workloadRef`). If the workload ref is omitted, it defaults to a Deployment with the same name as the service.
 - **Reference mode**: when no target is specified, the Pacto is reference-only — the contract is resolved and stored, but no runtime validation runs. ContractStatus is `Reference`.
-- **Reconciliation frequency**: `spec.checkIntervalSeconds` controls how often the operator re-validates (default: 300, minimum: 30).
+- **Reconciliation frequency**: `spec.checkIntervalSeconds` is the requeue delay the operator returns after each reconciliation (default: 300, minimum: 30) — it is not a background poll. The operator also reconciles immediately whenever the spec, status, or a referenced Secret changes, then requeues itself after this interval.
 
 ### PactoRevision
 
@@ -232,6 +256,8 @@ If the Secret is missing or has invalid keys, the Pacto CR status is set to `Non
 The operator optionally manages a [Pacto Dashboard](https://github.com/TrianaLab/pacto-dashboard) instance. The dashboard provides a visual service graph showing dependencies, contract versions, and compliance status across all Pacto resources in the cluster.
 
 The operator handles the full dashboard lifecycle: Deployment, ClusterIP Service, ServiceAccount, and RBAC. The dashboard image is version-locked to the Pacto library bundled into the controller.
+
+Dashboard CPU/memory requests and limits can be overridden via the chart's `dashboard.resources` values (which set the controller's `--dashboard-cpu-request` / `--dashboard-cpu-limit` / `--dashboard-memory-request` / `--dashboard-memory-limit` flags). These accept standard Kubernetes [resource quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) strings — `100m`, `256Mi`, `1Gi`, and so on. Every supplied value is parsed at operator startup, so an invalid quantity fails fast (the operator refuses to start) rather than panicking during the first reconciliation.
 
 Network exposure is a chart-level concern. The Helm chart creates a separate configurable Service for external access, with optional Ingress and Gateway API HTTPRoute support. See the [chart README](charts/pacto-operator/#dashboard) for details.
 

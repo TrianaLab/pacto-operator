@@ -51,6 +51,7 @@ _Appears in:_
 | `valueKeys` _string array_ | ValueKeys lists the declared configuration value keys. |  | Optional: \{\} <br /> |
 | `secretKeys` _string array_ | SecretKeys lists configuration keys whose values reference secrets. |  | Optional: \{\} <br /> |
 | `overriddenKeys` _string array_ | OverriddenKeys lists configuration keys whose values were overridden<br />by spec.overrides.configurations. Empty when no overrides apply. |  | Optional: \{\} <br /> |
+| `properties` _[SchemaProperty](#schemaproperty) array_ | Properties lists the configuration's declared keys with their type and<br />default/value, extracted from the bundled schema (or literal values), so<br />consumers can render configuration content without re-reading the bundle. |  | Optional: \{\} <br /> |
 
 
 #### ConfigurationOverride
@@ -393,6 +394,7 @@ _Appears in:_
 | `runtime` _[RuntimeInfo](#runtimeinfo)_ | Runtime describes the contract's runtime section (declared). |  | Optional: \{\} <br /> |
 | `observedRuntime` _[ObservedRuntime](#observedruntime)_ | ObservedRuntime describes the actual runtime state observed from the cluster.<br />Only populated when a target workload exists. |  | Optional: \{\} <br /> |
 | `scaling` _[ScalingInfo](#scalinginfo)_ | Scaling describes the contract's scaling section. |  | Optional: \{\} <br /> |
+| `readiness` _[ReadinessStatus](#readinessstatus)_ | Readiness is the derived operational readiness assessment of the contract.<br />It is computed from the contract's declared readiness checks and the current<br />time. It is a separate dimension from contract compliance and does NOT affect<br />ContractStatus. Absent when the contract declares no readiness. |  | Optional: \{\} <br /> |
 | `metadata` _object (keys:string, values:string)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#condition-v1-meta) array_ | Conditions represent individual validation checks. |  | Optional: \{\} <br /> |
 | `currentRevision` _string_ | CurrentRevision is the name of the active PactoRevision. |  | Optional: \{\} <br /> |
@@ -419,6 +421,9 @@ _Appears in:_
 | `hasSchema` _boolean_ | HasSchema indicates whether a policy schema file is bundled. |  |  |
 | `schema` _string_ | Schema is the bundle-relative path to the policy schema file, if local. |  | Optional: \{\} <br /> |
 | `ref` _string_ | Ref is the external OCI reference for the policy schema, if used. |  | Optional: \{\} <br /> |
+| `title` _string_ | Title is the policy schema's declared title, if any. |  | Optional: \{\} <br /> |
+| `description` _string_ | Description is the policy schema's declared description, if any. |  | Optional: \{\} <br /> |
+| `properties` _[SchemaProperty](#schemaproperty) array_ | Properties lists the policy schema's keys with their type and default, so<br />consumers can render policy content without re-reading the bundle. |  | Optional: \{\} <br /> |
 
 
 #### PortStatus
@@ -438,6 +443,54 @@ _Appears in:_
 | `observed` _integer array_ | Observed lists ports found on the Kubernetes Service. |  |  |
 | `missing` _integer array_ | Missing lists contract ports not found on the Service. |  |  |
 | `unexpected` _integer array_ | Unexpected lists Service ports not declared in the contract. |  |  |
+
+
+#### ReadinessCheckStatus
+
+
+
+ReadinessCheckStatus is the derived state of a single readiness check.
+
+
+
+_Appears in:_
+- [ReadinessStatus](#readinessstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `id` _string_ | ID is the readiness requirement identifier (e.g. dashboard, runbook). |  | Required: \{\} <br /> |
+| `type` _string_ | Type classifies the evidence pointer (url, document, ticket, report, artifact, identifier, other). |  | Required: \{\} <br /> |
+| `evidence` _string_ | Evidence is the declared pointer to the evidence. |  | Required: \{\} <br /> |
+| `weight` _integer_ | Weight is the declared contribution to the readiness score (0-100). |  | Required: \{\} <br /> |
+| `expires` _string_ | Expires is the declared freshness boundary (YYYY-MM-DD). |  | Required: \{\} <br /> |
+| `description` _string_ | Description is the optional human-readable explanation. |  | Optional: \{\} <br /> |
+| `status` _string_ | Status is the derived check status. |  | Enum: [Current Expired Invalid] <br />Required: \{\} <br /> |
+| `daysRemaining` _integer_ | DaysRemaining is the number of whole days until expiry, for current checks. |  | Optional: \{\} <br /> |
+
+
+#### ReadinessStatus
+
+
+
+ReadinessStatus is the derived operational readiness assessment of a contract.
+It is computed from the contract's declared readiness checks and the current
+time; the derived per-check status and score are never authored in the contract.
+
+
+
+_Appears in:_
+- [PactoStatus](#pactostatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `score` _integer_ | Score is the percentage of declared weight that is currently satisfied (0-100). |  | Optional: \{\} <br /> |
+| `minScore` _integer_ | MinScore is the gate threshold (the declared readiness.minScore, or 100 when omitted). |  | Optional: \{\} <br /> |
+| `passing` _boolean_ | Passing reports whether the readiness gate is met (Score >= MinScore). |  | Optional: \{\} <br /> |
+| `totalWeight` _integer_ | TotalWeight is the sum of all declared check weights. |  | Optional: \{\} <br /> |
+| `currentWeight` _integer_ | CurrentWeight is the sum of weights of non-expired (current) checks. |  | Optional: \{\} <br /> |
+| `currentCount` _integer_ | CurrentCount is the number of current checks. |  | Optional: \{\} <br /> |
+| `expiredCount` _integer_ | ExpiredCount is the number of expired checks. |  | Optional: \{\} <br /> |
+| `checks` _[ReadinessCheckStatus](#readinesscheckstatus) array_ | Checks is the derived per-check readiness status. |  | Optional: \{\} <br /> |
 
 
 #### ResourceStatus
@@ -536,6 +589,26 @@ _Appears in:_
 | `replicas` _integer_ | Replicas is the exact replica count (mutually exclusive with Min/Max). |  | Optional: \{\} <br /> |
 | `min` _integer_ | Min is the minimum replica count for autoscaling. |  | Optional: \{\} <br /> |
 | `max` _integer_ | Max is the maximum replica count for autoscaling. |  | Optional: \{\} <br /> |
+
+
+#### SchemaProperty
+
+
+
+SchemaProperty is a flattened key from a configuration or policy schema
+(or a configuration values map), suitable for display by consumers.
+
+
+
+_Appears in:_
+- [ConfigurationInfo](#configurationinfo)
+- [PolicyInfo](#policyinfo)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `key` _string_ | Key is the property name (dot-notation for nested objects). |  |  |
+| `value` _string_ | Value is the default (for schema properties) or the literal value. |  | Optional: \{\} <br /> |
+| `type` _string_ | Type is the JSON Schema type of the property. |  | Optional: \{\} <br /> |
 
 
 #### TargetRef

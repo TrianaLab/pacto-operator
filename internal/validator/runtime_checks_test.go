@@ -473,6 +473,12 @@ func TestImageMatches(t *testing.T) {
 		{"user/app", "docker.io/user/app:v1", true},
 		{"ghcr.io/org/svc@sha256:abc", "ghcr.io/org/svc@sha256:abc", true},
 		{"ghcr.io/org/svc@sha256:abc", "ghcr.io/org/svc:v1", false},
+		// Registries with a port must not have the port mistaken for a tag.
+		{"localhost:5000/svc", "localhost:5000/svc:v1", true},
+		{"localhost:5000/svc:v1", "localhost:5000/svc:v1", true},
+		{"localhost:5000/svc:v1", "localhost:5000/svc:v2", false},
+		{"registry:5000/org/svc", "registry:5000/org/svc:v2", true},
+		{"registry:5000/org/svc:v1", "registry:5000/org/svc:v1", true},
 	}
 
 	for _, tt := range tests {

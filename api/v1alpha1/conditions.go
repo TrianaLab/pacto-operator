@@ -52,6 +52,17 @@ const (
 
 	// ConditionHealthTimingMatch indicates whether probe initialDelaySeconds matches the contract.
 	ConditionHealthTimingMatch = "HealthTimingMatch"
+
+	// ConditionReadinessSatisfied indicates whether the derived readiness gate is met
+	// (score >= minScore). It is a single aggregate condition, not one per check.
+	// Absent when the contract declares no readiness.
+	ConditionReadinessSatisfied = "ReadinessSatisfied"
+
+	// ConditionRuntimeObserved indicates whether the operator was able to observe
+	// the runtime state at all. False with reason ObservationFailed means the
+	// cluster query errored, so compliance could not be determined (distinct from
+	// "resources don't exist").
+	ConditionRuntimeObserved = "RuntimeObserved"
 )
 
 // Condition reasons.
@@ -81,6 +92,21 @@ const (
 	ReasonMismatch = "Mismatch"
 	ReasonMissing  = "Missing"
 	ReasonSkipped  = "Skipped"
+
+	// ReasonObservationFailed indicates the operator could not query runtime state.
+	ReasonObservationFailed = "ObservationFailed"
+
+	// Readiness condition reasons (for ConditionReadinessSatisfied).
+	ReasonReadinessSatisfied     = "Satisfied"
+	ReasonReadinessBelowMinScore = "BelowMinScore"
+	ReasonReadinessInvalid       = "Invalid"
+)
+
+// Event reasons (free-form, emitted via the recorder). Readiness events are
+// emitted on gate transitions only to avoid per-reconcile spam.
+const (
+	EventReadinessGateUnmet = "ReadinessGateUnmet"
+	EventReadinessRecovered = "ReadinessRecovered"
 )
 
 // Severity levels for runtime reconciliation checks.

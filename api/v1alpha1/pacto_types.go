@@ -150,6 +150,79 @@ type CheckSummary struct {
 	Failed int32 `json:"failed"`
 }
 
+// ReadinessStatus is the derived operational readiness assessment of a contract.
+// It is computed from the contract's declared readiness checks and the current
+// time; the derived per-check status and score are never authored in the contract.
+type ReadinessStatus struct {
+	// Score is the percentage of declared weight that is currently satisfied (0-100).
+	// +optional
+	Score int32 `json:"score,omitempty"`
+
+	// MinScore is the gate threshold (the declared readiness.minScore, or 100 when omitted).
+	// +optional
+	MinScore int32 `json:"minScore,omitempty"`
+
+	// Passing reports whether the readiness gate is met (Score >= MinScore).
+	// +optional
+	Passing bool `json:"passing,omitempty"`
+
+	// TotalWeight is the sum of all declared check weights.
+	// +optional
+	TotalWeight int32 `json:"totalWeight,omitempty"`
+
+	// CurrentWeight is the sum of weights of non-expired (current) checks.
+	// +optional
+	CurrentWeight int32 `json:"currentWeight,omitempty"`
+
+	// CurrentCount is the number of current checks.
+	// +optional
+	CurrentCount int32 `json:"currentCount,omitempty"`
+
+	// ExpiredCount is the number of expired checks.
+	// +optional
+	ExpiredCount int32 `json:"expiredCount,omitempty"`
+
+	// Checks is the derived per-check readiness status.
+	// +optional
+	Checks []ReadinessCheckStatus `json:"checks,omitempty"`
+}
+
+// ReadinessCheckStatus is the derived state of a single readiness check.
+type ReadinessCheckStatus struct {
+	// ID is the readiness requirement identifier (e.g. dashboard, runbook).
+	// +required
+	ID string `json:"id"`
+
+	// Type classifies the evidence pointer (url, document, ticket, report, artifact, identifier, other).
+	// +required
+	Type string `json:"type"`
+
+	// Evidence is the declared pointer to the evidence.
+	// +required
+	Evidence string `json:"evidence"`
+
+	// Weight is the declared contribution to the readiness score (0-100).
+	// +required
+	Weight int32 `json:"weight"`
+
+	// Expires is the declared freshness boundary (YYYY-MM-DD).
+	// +required
+	Expires string `json:"expires"`
+
+	// Description is the optional human-readable explanation.
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// Status is the derived check status.
+	// +kubebuilder:validation:Enum=Current;Expired;Invalid
+	// +required
+	Status string `json:"status"`
+
+	// DaysRemaining is the number of whole days until expiry, for current checks.
+	// +optional
+	DaysRemaining *int32 `json:"daysRemaining,omitempty"`
+}
+
 // ResourcesStatus groups the status of target resources.
 type ResourcesStatus struct {
 	// Service describes the target Service.
@@ -269,6 +342,27 @@ type ConfigurationInfo struct {
 	// by spec.overrides.configurations. Empty when no overrides apply.
 	// +optional
 	OverriddenKeys []string `json:"overriddenKeys,omitempty"`
+
+	// Properties lists the configuration's declared keys with their type and
+	// default/value, extracted from the bundled schema (or literal values), so
+	// consumers can render configuration content without re-reading the bundle.
+	// +optional
+	Properties []SchemaProperty `json:"properties,omitempty"`
+}
+
+// SchemaProperty is a flattened key from a configuration or policy schema
+// (or a configuration values map), suitable for display by consumers.
+type SchemaProperty struct {
+	// Key is the property name (dot-notation for nested objects).
+	Key string `json:"key"`
+
+	// Value is the default (for schema properties) or the literal value.
+	// +optional
+	Value string `json:"value,omitempty"`
+
+	// Type is the JSON Schema type of the property.
+	// +optional
+	Type string `json:"type,omitempty"`
 }
 
 // DependencyInfo describes a declared dependency.
@@ -304,6 +398,19 @@ type PolicyInfo struct {
 	// Ref is the external OCI reference for the policy schema, if used.
 	// +optional
 	Ref string `json:"ref,omitempty"`
+
+	// Title is the policy schema's declared title, if any.
+	// +optional
+	Title string `json:"title,omitempty"`
+
+	// Description is the policy schema's declared description, if any.
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// Properties lists the policy schema's keys with their type and default, so
+	// consumers can render policy content without re-reading the bundle.
+	// +optional
+	Properties []SchemaProperty `json:"properties,omitempty"`
 }
 
 // RuntimeInfo describes the contract's runtime section.
@@ -546,6 +653,13 @@ type PactoStatus struct {
 	// Scaling describes the contract's scaling section.
 	// +optional
 	Scaling *ScalingInfo `json:"scaling,omitempty"`
+
+	// Readiness is the derived operational readiness assessment of the contract.
+	// It is computed from the contract's declared readiness checks and the current
+	// time. It is a separate dimension from contract compliance and does NOT affect
+	// ContractStatus. Absent when the contract declares no readiness.
+	// +optional
+	Readiness *ReadinessStatus `json:"readiness,omitempty"`
 
 	// Metadata contains arbitrary key-value pairs from the contract's metadata section.
 	// +optional

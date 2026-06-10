@@ -420,3 +420,156 @@ func deleteDeployment(name, namespace string) {
 		_ = k8sClient.Delete(ctx, deploy)
 	}
 }
+
+const readinessContract = `
+pactoVersion: "1.1"
+service:
+  name: readiness-svc
+  version: 1.0.0
+  owner: team-a
+readiness:
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.company.com/readiness-svc
+      weight: 60
+      expires: "2099-12-31"
+    - id: runbook
+      type: document
+      evidence: docs/runbooks/readiness-svc.md
+      weight: 40
+      expires: "2099-09-30"
+`
+
+const readinessExpiredContract = `
+pactoVersion: "1.1"
+service:
+  name: readiness-expired-svc
+  version: 1.0.0
+  owner: team-a
+readiness:
+  checks:
+    - id: dashboard
+      type: url
+      evidence: https://grafana.company.com/readiness-expired-svc
+      weight: 60
+      expires: "2099-12-31"
+    - id: security-review
+      type: ticket
+      evidence: SEC-1
+      weight: 40
+      expires: "2000-01-15"
+`
+
+var _ = Describe("Pacto Controller Readiness", func() {
+
+	Context("When a reference contract declares readiness with all checks current", func() {
+		const name = "test-readiness-current"
+
+		BeforeEach(func() {
+			pacto := &pactov1alpha1.Pacto{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: pactov1alpha1.PactoSpec{
+					ContractRef: pactov1alpha1.ContractRef{Inline: readinessContract},
+				},
+			}
+			Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			pacto := &pactov1alpha1.Pacto{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, pacto)).To(Succeed())
+		})
+
+		It("populates status.readiness and ReadinessChecksCurrent=True", func() {
+			Eventually(func(g Gomega) {
+				pacto := &pactov1alpha1.Pacto{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
+
+				g.Expect(pacto.Status.Readiness).NotTo(BeNil())
+				g.Expect(pacto.Status.Readiness.Score).To(Equal(int32(100)))
+				g.Expect(pacto.Status.Readiness.TotalWeight).To(Equal(int32(100)))
+				g.Expect(pacto.Status.Readiness.CurrentCount).To(Equal(int32(2)))
+				g.Expect(pacto.Status.Readiness.ExpiredCount).To(Equal(int32(0)))
+				g.Expect(pacto.Status.Readiness.Checks).To(HaveLen(2))
+
+				cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(cond.Reason).To(Equal(pactov1alpha1.ReasonReadinessSatisfied))
+
+				// Readiness is a separate dimension: a valid reference contract stays compliant.
+				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusReference))
+			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
+		})
+	})
+
+	Context("When a contract declares an expired readiness check", func() {
+		const name = "test-readiness-expired"
+
+		BeforeEach(func() {
+			pacto := &pactov1alpha1.Pacto{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: pactov1alpha1.PactoSpec{
+					ContractRef: pactov1alpha1.ContractRef{Inline: readinessExpiredContract},
+				},
+			}
+			Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			pacto := &pactov1alpha1.Pacto{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, pacto)).To(Succeed())
+		})
+
+		It("sets ReadinessChecksCurrent=False without affecting ContractStatus", func() {
+			Eventually(func(g Gomega) {
+				pacto := &pactov1alpha1.Pacto{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
+
+				g.Expect(pacto.Status.Readiness).NotTo(BeNil())
+				g.Expect(pacto.Status.Readiness.ExpiredCount).To(Equal(int32(1)))
+
+				cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal(pactov1alpha1.ReasonReadinessBelowMinScore))
+
+				// Expired readiness does NOT make the contract non-compliant.
+				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusReference))
+			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
+		})
+	})
+
+	Context("When a contract declares no readiness", func() {
+		const name = "test-readiness-absent"
+
+		BeforeEach(func() {
+			pacto := &pactov1alpha1.Pacto{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: pactov1alpha1.PactoSpec{
+					ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
+				},
+			}
+			Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			pacto := &pactov1alpha1.Pacto{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, pacto)).To(Succeed())
+		})
+
+		It("leaves status.readiness and the readiness condition absent", func() {
+			Eventually(func(g Gomega) {
+				pacto := &pactov1alpha1.Pacto{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
+				g.Expect(pacto.Status.ContractStatus).NotTo(BeEmpty())
+				g.Expect(pacto.Status.Readiness).To(BeNil())
+				g.Expect(meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)).To(BeNil())
+			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
+		})
+	})
+})

@@ -71,6 +71,27 @@ func TestConfigValidate(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "enabled with invalid resource quantity fails",
+			cfg: Config{
+				Enabled:   true,
+				Image:     "ghcr.io/trianalab/pacto-dashboard:1.0.0",
+				Namespace: "pacto-system",
+				Resources: ResourcesConfig{MemoryRequest: "not-a-quantity"},
+			},
+			wantErr: true,
+			errMsg:  "invalid dashboard memory-request quantity",
+		},
+		{
+			name: "enabled with valid resource overrides succeeds",
+			cfg: Config{
+				Enabled:   true,
+				Image:     "ghcr.io/trianalab/pacto-dashboard:1.0.0",
+				Namespace: "pacto-system",
+				Resources: ResourcesConfig{CPURequest: "100m", CPULimit: "1", MemoryRequest: "256Mi", MemoryLimit: "1Gi"},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io/fs"
 	"maps"
 	"sort"
 	"strings"
@@ -39,6 +40,7 @@ import (
 	"github.com/trianalab/pacto-operator/internal/validator"
 	"github.com/trianalab/pacto/pkg/contract"
 	"github.com/trianalab/pacto/pkg/oci"
+	"github.com/trianalab/pacto/pkg/schemax"
 	"github.com/trianalab/pacto/pkg/validation"
 )
 
@@ -78,6 +80,11 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 		return ctrl.Result{}, err
 	}
+
+	// Capture the prior readiness condition before the status is reset, so
+	// readiness gate transition events fire only on a change of state.
+	prevReadiness := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
+	readinessWasUnmet := prevReadiness != nil && prevReadiness.Status == metav1.ConditionFalse
 
 	// 2. Reset all derived status fields so no stale data survives.
 	//    Fields will be repopulated by each step below.
@@ -151,6 +158,10 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
+	// 6b. Evaluate declared readiness (separate dimension from compliance).
+	//     Runs for both reference-only and target contracts.
+	r.reconcileReadiness(pacto, effectiveContract, readinessWasUnmet)
+
 	// 7. Ensure PactoRevision for current version
 	revisionName, revErr := r.ensureRevision(ctx, pacto, loadResult)
 	if revErr != nil {
@@ -186,10 +197,20 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	snapshot, err := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
 	if err != nil {
 		log.Error(err, "Failed to observe runtime state")
+		// Observation failed — we genuinely could not determine compliance. Mark
+		// it as a failed RuntimeObserved condition (distinct from "resources do
+		// not exist") and report a failed summary + an explicit event, instead of
+		// the previous misleading {Total:1,Passed:1} which read as success.
+		obsMsg := fmt.Sprintf("failed to observe runtime state: %v", err)
+		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
+			pactov1alpha1.ReasonObservationFailed, obsMsg)
+		r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "ObservationFailed",
+			"Could not observe runtime state for %q: %v", serviceName, err)
 		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusUnknown
-		pacto.Status.Summary = &pactov1alpha1.CheckSummary{Total: 1, Passed: 1}
+		pacto.Status.Summary = &pactov1alpha1.CheckSummary{Total: 1, Passed: 0, Failed: 1}
 		return r.finishReconciliation(ctx, pacto, effectiveContract, []validator.Check{
 			{Name: pactov1alpha1.ConditionContractValid, Passed: true, Severity: pactov1alpha1.SeverityError},
+			{Name: pactov1alpha1.ConditionRuntimeObserved, Passed: false, Severity: pactov1alpha1.SeverityError, Message: obsMsg},
 		})
 	}
 
@@ -250,6 +271,7 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.Runtime = nil
 	pacto.Status.ObservedRuntime = nil
 	pacto.Status.Scaling = nil
+	pacto.Status.Readiness = nil
 	pacto.Status.Metadata = nil
 	pacto.Status.Conditions = nil
 	// Preserve: CurrentRevision (set in step 7), LastReconciledAt/ObservedGeneration (set in finish)
@@ -374,6 +396,14 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		}
 		sort.Strings(ci.ValueKeys)
 		sort.Strings(ci.SecretKeys)
+		// Surface configuration content (declared keys + types) so consumers can
+		// render it without re-reading the bundle. Literal values win; otherwise
+		// extract from the bundled schema.
+		if len(cfg.Values) > 0 {
+			ci.Properties = toSchemaProps(schemax.Values(cfg.Values))
+		} else if cfg.Schema != "" {
+			ci.Properties = schemaPropsFromBundle(lr.BundleFS, cfg.Schema)
+		}
 		pacto.Status.Configurations = append(pacto.Status.Configurations, ci)
 	}
 
@@ -389,12 +419,19 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 
 	// Policies
 	for _, pol := range c.Policies {
-		pacto.Status.Policies = append(pacto.Status.Policies, pactov1alpha1.PolicyInfo{
+		pi := pactov1alpha1.PolicyInfo{
 			Name:      pol.Name,
 			HasSchema: pol.Schema != "",
 			Schema:    pol.Schema,
 			Ref:       pol.Ref,
-		})
+		}
+		// Surface policy schema content (title/description + keys) for local
+		// schemas so consumers can render it without re-reading the bundle.
+		if pol.Schema != "" {
+			pi.Properties = schemaPropsFromBundle(lr.BundleFS, pol.Schema)
+			pi.Title, pi.Description = schemaMetaFromBundle(lr.BundleFS, pol.Schema)
+		}
+		pacto.Status.Policies = append(pacto.Status.Policies, pi)
 	}
 
 	// Runtime
@@ -453,6 +490,45 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 			pacto.Status.Metadata[k] = fmt.Sprintf("%v", v)
 		}
 	}
+}
+
+// schemaPropsFromBundle reads a JSON Schema file from the bundle FS and returns
+// its flattened properties as status entries. Returns nil when the bundle, file,
+// or properties are unavailable (the dashboard then falls back to metadata only).
+func schemaPropsFromBundle(fsys fs.FS, path string) []pactov1alpha1.SchemaProperty {
+	if fsys == nil || path == "" {
+		return nil
+	}
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return nil
+	}
+	return toSchemaProps(schemax.Properties(data, path))
+}
+
+// schemaMetaFromBundle reads the title and description from a JSON Schema file
+// in the bundle FS.
+func schemaMetaFromBundle(fsys fs.FS, path string) (title, description string) {
+	if fsys == nil || path == "" {
+		return "", ""
+	}
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return "", ""
+	}
+	return schemax.Meta(data, path)
+}
+
+// toSchemaProps converts shared schemax properties into CRD status properties.
+func toSchemaProps(ps []schemax.Property) []pactov1alpha1.SchemaProperty {
+	if len(ps) == 0 {
+		return nil
+	}
+	out := make([]pactov1alpha1.SchemaProperty, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, pactov1alpha1.SchemaProperty{Key: p.Key, Value: p.Value, Type: p.Type})
+	}
+	return out
 }
 
 // applyValidationResult maps validator output to CRD status fields.
