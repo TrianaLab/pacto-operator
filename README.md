@@ -244,7 +244,7 @@ If the Secret is missing or has invalid keys, the Pacto CR status is set to `Non
 
 ## Dashboard
 
-The operator optionally manages a [Pacto Dashboard](https://github.com/TrianaLab/pacto-dashboard) instance. The dashboard provides a visual service graph showing dependencies, contract versions, readiness and compliance status across all Pacto resources in the cluster.
+The operator optionally manages a [Pacto Dashboard](https://github.com/TrianaLab/pacto-dashboard) instance. The dashboard provides a visual service graph showing dependencies, contract versions, readiness and compliance status across all Pacto resources in the cluster. A fleet overview surfaces compliance, readiness and high-blast-radius services at a glance, and a dedicated Service Readiness view shows per-service scores and check gaps (expired or invalid evidence).
 
 The operator handles the full dashboard lifecycle: Deployment, ClusterIP Service, ServiceAccount, and RBAC. The dashboard image is version-locked to the Pacto library bundled into the controller.
 
