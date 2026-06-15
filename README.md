@@ -9,7 +9,9 @@
 
 **Kubernetes operator that checks whether running workloads match their declared [Pacto](https://github.com/TrianaLab/pacto) service contracts.**
 
-The operator watches `Pacto` custom resources, reads the referenced contract, observes the live workload, and reports whether they align. It is read-only and non-intrusive — it never modifies your workloads.
+Teams declare operational intent in a contract — workload type, upgrade strategy, images, probes, storage — then deploy separately through Helm or Kustomize, and nothing connects the two sides at runtime, so contracts drift from reality silently. The operator closes that gap: it watches `Pacto` custom resources, reads the referenced contract, observes the live workload and reports whether they align — continuously, read-only, never modifying your workloads.
+
+**[Pacto](https://github.com/TrianaLab/pacto)** · **[Documentation](https://trianalab.github.io/pacto)** · **[Contract reference](https://trianalab.github.io/pacto/contract-reference)** · **[Helm chart](charts/pacto-operator/)**
 
 ---
 
@@ -27,11 +29,36 @@ The CLI is the authoring tool. The operator is the runtime feedback loop. The da
 
 ---
 
-## Why
+## Try it
 
-Teams declare intent in a contract — workload type, upgrade strategy, images, probes, storage — and deploy separately through Helm or Kustomize. Nothing connects those two sides at runtime. Contracts drift from reality silently.
+```bash
+# Install (dashboard enabled by default)
+helm install pacto-operator oci://ghcr.io/trianalab/charts/pacto-operator \
+  --namespace pacto-operator-system --create-namespace
+```
 
-The operator closes this gap. It reads the contract, observes the live workload, and reports whether they match. Continuously, without modifying anything.
+Bind a contract to a workload:
+
+```yaml
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata:
+  name: my-service
+spec:
+  contractRef:
+    oci: ghcr.io/your-org/contracts/my-service
+  target:
+    serviceName: my-service
+```
+
+The operator resolves the highest semver tag, snapshots it as a `PactoRevision`, observes the `my-service` Deployment and Service, runs the checks and sets the status:
+
+```bash
+kubectl get pactos                 # STATUS: Compliant | Warning | NonCompliant | Reference
+kubectl describe pacto my-service  # per-check conditions
+```
+
+Full install options (Helm values, Kustomize) are in [Installation](#installation).
 
 ---
 
@@ -133,42 +160,6 @@ A `PactoRevision` is an immutable snapshot of a resolved contract version. Creat
 
 ---
 
-## Quick Start
-
-1. Install the operator (see [Installation](#installation)).
-
-2. Create a `Pacto` resource that binds a contract to a workload:
-
-   ```yaml
-   apiVersion: pacto.trianalab.io/v1alpha1
-   kind: Pacto
-   metadata:
-     name: my-service
-   spec:
-     contractRef:
-       oci: ghcr.io/your-org/contracts/my-service
-     target:
-       serviceName: my-service
-   ```
-
-   The operator resolves the highest semver tag from the OCI registry, creates a `PactoRevision` for that version, observes the `my-service` Deployment and Service, runs all checks, and sets the contract status.
-
-3. Check status:
-
-   ```bash
-   kubectl get pactos
-   ```
-
-   The `STATUS` column shows: `Compliant` (all checks pass), `Warning` (non-critical mismatches), `NonCompliant` (errors or missing resources), or `Reference` (no target).
-
-4. Inspect conditions for details on individual checks:
-
-   ```bash
-   kubectl describe pacto my-service
-   ```
-
----
-
 ## Breaking change: `status.phase` removed
 
 The `status.phase` field has been removed. Use `status.contractStatus` instead.
@@ -253,7 +244,7 @@ If the Secret is missing or has invalid keys, the Pacto CR status is set to `Non
 
 ## Dashboard
 
-The operator optionally manages a [Pacto Dashboard](https://github.com/TrianaLab/pacto-dashboard) instance. The dashboard provides a visual service graph showing dependencies, contract versions, and compliance status across all Pacto resources in the cluster.
+The operator optionally manages a [Pacto Dashboard](https://github.com/TrianaLab/pacto-dashboard) instance. The dashboard provides a visual service graph showing dependencies, contract versions, readiness and compliance status across all Pacto resources in the cluster.
 
 The operator handles the full dashboard lifecycle: Deployment, ClusterIP Service, ServiceAccount, and RBAC. The dashboard image is version-locked to the Pacto library bundled into the controller.
 
