@@ -33,7 +33,9 @@ BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 # Dashboard image — derived from the Pacto library version in go.mod.
 # The operator owns the dashboard deployment lifecycle; users do not choose the image.
-PACTO_VERSION := $(shell echo '$(call gomodver,github.com/trianalab/pacto)' | sed 's/^v//')
+# NOTE: the module path is /v2 (Go major-version suffix) — querying the bare
+# github.com/trianalab/pacto returns empty and bakes an untagged dashboard image.
+PACTO_VERSION := $(shell echo '$(call gomodver,github.com/trianalab/pacto/v2)' | sed 's/^v//')
 DASHBOARD_IMG := ghcr.io/trianalab/pacto-dashboard:$(PACTO_VERSION)
 
 # Ldflags for version injection
