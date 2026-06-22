@@ -101,7 +101,9 @@ jobs:
         run: |
           tag="${{ needs.release.outputs.tag }}"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-          pacto_ver=$(go list -m -f '{{.Version}}' github.com/trianalab/pacto 2>/dev/null || echo "")
+          # Module path is /v2 (Go major-version suffix); the bare path returns
+          # empty and bakes an untagged pacto-dashboard image into the operator.
+          pacto_ver=$(go list -m -f '{{.Version}}' github.com/trianalab/pacto/v2 2>/dev/null || echo "")
           echo "pacto_version=${pacto_ver#v}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@v6.4.0
