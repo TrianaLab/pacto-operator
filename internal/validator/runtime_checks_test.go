@@ -5,7 +5,7 @@ import (
 
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
 	"github.com/trianalab/pacto-operator/internal/observer"
-	"github.com/trianalab/pacto/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/contract"
 )
 
 //go:fix inline

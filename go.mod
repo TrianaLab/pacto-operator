@@ -68,7 +68,7 @@ require (
 	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
-	github.com/trianalab/pacto v1.10.0
+	github.com/trianalab/pacto/v2 v2.0.1
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.65.0 // indirect
@@ -114,3 +114,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/trianalab/pacto/v2 => ../pacto

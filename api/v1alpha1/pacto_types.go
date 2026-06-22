@@ -154,7 +154,7 @@ type CheckSummary struct {
 // It is computed from the contract's declared readiness checks and the current
 // time; the derived per-check status and score are never authored in the contract.
 type ReadinessStatus struct {
-	// Score is the percentage of declared weight that is currently satisfied (0-100).
+	// Score is the percentage of in-scope weight earned (0-100).
 	// +optional
 	Score int32 `json:"score,omitempty"`
 
@@ -162,29 +162,72 @@ type ReadinessStatus struct {
 	// +optional
 	MinScore int32 `json:"minScore,omitempty"`
 
-	// Passing reports whether the readiness gate is met (Score >= MinScore).
+	// Passing reports whether the gate is met (not expired and Score >= MinScore).
 	// +optional
 	Passing bool `json:"passing,omitempty"`
 
-	// TotalWeight is the sum of all declared check weights.
+	// TotalWeight is the sum of in-scope (non-deferred) check weights.
 	// +optional
 	TotalWeight int32 `json:"totalWeight,omitempty"`
 
-	// CurrentWeight is the sum of weights of non-expired (current) checks.
+	// EarnedWeight is the weight earned toward the score.
 	// +optional
-	CurrentWeight int32 `json:"currentWeight,omitempty"`
+	EarnedWeight int32 `json:"earnedWeight,omitempty"`
 
-	// CurrentCount is the number of current checks.
+	// Expires is the assessment-level expiry boundary (YYYY-MM-DD).
 	// +optional
-	CurrentCount int32 `json:"currentCount,omitempty"`
+	Expires string `json:"expires,omitempty"`
 
-	// ExpiredCount is the number of expired checks.
+	// Expired reports whether the assessment has expired; when true every in-scope check earns 0.
 	// +optional
-	ExpiredCount int32 `json:"expiredCount,omitempty"`
+	Expired bool `json:"expired,omitempty"`
+
+	// DaysRemaining is the number of whole days until expiry (nil when expired).
+	// +optional
+	DaysRemaining *int32 `json:"daysRemaining,omitempty"`
+
+	// DoneCount is the number of checks declared done.
+	// +optional
+	DoneCount int32 `json:"doneCount,omitempty"`
+
+	// PartialCount is the number of checks declared partial.
+	// +optional
+	PartialCount int32 `json:"partialCount,omitempty"`
+
+	// NotDoneCount is the number of checks declared not-done.
+	// +optional
+	NotDoneCount int32 `json:"notDoneCount,omitempty"`
+
+	// DeferredCount is the number of checks declared deferred (excluded from scoring).
+	// +optional
+	DeferredCount int32 `json:"deferredCount,omitempty"`
+
+	// Revisions is the declared readiness revision history.
+	// +optional
+	Revisions []ReadinessRevisionStatus `json:"revisions,omitempty"`
 
 	// Checks is the derived per-check readiness status.
 	// +optional
 	Checks []ReadinessCheckStatus `json:"checks,omitempty"`
+}
+
+// ReadinessRevisionStatus is one declared readiness revision-history entry.
+type ReadinessRevisionStatus struct {
+	// Date is the date the revision was assessed (YYYY-MM-DD).
+	// +required
+	Date string `json:"date"`
+
+	// Version is the service version assessed in this revision.
+	// +required
+	Version string `json:"version"`
+
+	// Author is who performed the assessment.
+	// +required
+	Author string `json:"author"`
+
+	// Description summarizes what changed or was observed.
+	// +required
+	Description string `json:"description"`
 }
 
 // ReadinessCheckStatus is the derived state of a single readiness check.
@@ -197,30 +240,34 @@ type ReadinessCheckStatus struct {
 	// +required
 	Type string `json:"type"`
 
+	// Category is the software-domain category (security, documentation, observability, etc.).
+	// +optional
+	Category string `json:"category,omitempty"`
+
+	// Status is the declared completion status.
+	// +kubebuilder:validation:Enum=done;partial;not-done;deferred
+	// +required
+	Status string `json:"status"`
+
 	// Evidence is the declared pointer to the evidence.
-	// +required
-	Evidence string `json:"evidence"`
-
-	// Weight is the declared contribution to the readiness score (0-100).
-	// +required
-	Weight int32 `json:"weight"`
-
-	// Expires is the declared freshness boundary (YYYY-MM-DD).
-	// +required
-	Expires string `json:"expires"`
+	// +optional
+	Evidence string `json:"evidence,omitempty"`
 
 	// Description is the optional human-readable explanation.
 	// +optional
 	Description string `json:"description,omitempty"`
 
-	// Status is the derived check status.
-	// +kubebuilder:validation:Enum=Current;Expired;Invalid
+	// Weight is the declared contribution to the readiness score (0-100).
 	// +required
-	Status string `json:"status"`
+	Weight int32 `json:"weight"`
 
-	// DaysRemaining is the number of whole days until expiry, for current checks.
+	// EarnedWeight is the weight this check contributed toward the score.
 	// +optional
-	DaysRemaining *int32 `json:"daysRemaining,omitempty"`
+	EarnedWeight int32 `json:"earnedWeight"`
+
+	// Excluded reports whether the check is excluded from scoring (deferred).
+	// +optional
+	Excluded bool `json:"excluded,omitempty"`
 }
 
 // ResourcesStatus groups the status of target resources.
@@ -274,14 +321,13 @@ type ContractInfo struct {
 	// Version is the semver version from the contract.
 	Version string `json:"version"`
 
-	// Owner contains the structured ownership metadata from the contract.
-	// For structured owners this includes team, DRI, and contacts.
-	// For legacy string owners this is converted to OwnerInfo with the Team field set.
+	// Owner contains the structured ownership metadata from the contract
+	// (team, DRI, and contacts).
 	// +optional
 	Owner *OwnerInfo `json:"owner,omitempty"`
 
 	// OwnerDisplay is the canonical display string derived from owner metadata.
-	// Precedence: structured team > legacy string > structured DRI.
+	// Precedence: team > DRI.
 	// Useful for printer columns, dashboards, and backward-compatible consumers.
 	// +optional
 	OwnerDisplay string `json:"ownerDisplay,omitempty"`

@@ -299,9 +299,8 @@ spec:
                     type: string
                   owner:
                     description: |-
-                      Owner contains the structured ownership metadata from the contract.
-                      For structured owners this includes team, DRI, and contacts.
-                      For legacy string owners this is converted to OwnerInfo with the Team field set.
+                      Owner contains the structured ownership metadata from the contract
+                      (team, DRI, and contacts).
                     minProperties: 1
                     properties:
                       contacts:
@@ -336,7 +335,7 @@ spec:
                   ownerDisplay:
                     description: |-
                       OwnerDisplay is the canonical display string derived from owner metadata.
-                      Precedence: structured team > legacy string > structured DRI.
+                      Precedence: team > DRI.
                       Useful for printer columns, dashboards, and backward-compatible consumers.
                     type: string
                   resolvedRef:
@@ -664,32 +663,37 @@ spec:
                       description: ReadinessCheckStatus is the derived state of a
                         single readiness check.
                       properties:
-                        daysRemaining:
-                          description: DaysRemaining is the number of whole days until
-                            expiry, for current checks.
-                          format: int32
-                          type: integer
+                        category:
+                          description: Category is the software-domain category (security,
+                            documentation, observability, etc.).
+                          type: string
                         description:
                           description: Description is the optional human-readable
                             explanation.
                           type: string
+                        earnedWeight:
+                          description: EarnedWeight is the weight this check contributed
+                            toward the score.
+                          format: int32
+                          type: integer
                         evidence:
                           description: Evidence is the declared pointer to the evidence.
                           type: string
-                        expires:
-                          description: Expires is the declared freshness boundary
-                            (YYYY-MM-DD).
-                          type: string
+                        excluded:
+                          description: Excluded reports whether the check is excluded
+                            from scoring (deferred).
+                          type: boolean
                         id:
                           description: ID is the readiness requirement identifier
                             (e.g. dashboard, runbook).
                           type: string
                         status:
-                          description: Status is the derived check status.
+                          description: Status is the declared completion status.
                           enum:
-                          - Current
-                          - Expired
-                          - Invalid
+                          - done
+                          - partial
+                          - not-done
+                          - deferred
                           type: string
                         type:
                           description: Type classifies the evidence pointer (url,
@@ -701,43 +705,90 @@ spec:
                           format: int32
                           type: integer
                       required:
-                      - evidence
-                      - expires
                       - id
                       - status
                       - type
                       - weight
                       type: object
                     type: array
-                  currentCount:
-                    description: CurrentCount is the number of current checks.
+                  daysRemaining:
+                    description: DaysRemaining is the number of whole days until expiry
+                      (nil when expired).
                     format: int32
                     type: integer
-                  currentWeight:
-                    description: CurrentWeight is the sum of weights of non-expired
-                      (current) checks.
+                  deferredCount:
+                    description: DeferredCount is the number of checks declared deferred
+                      (excluded from scoring).
                     format: int32
                     type: integer
-                  expiredCount:
-                    description: ExpiredCount is the number of expired checks.
+                  doneCount:
+                    description: DoneCount is the number of checks declared done.
                     format: int32
                     type: integer
+                  earnedWeight:
+                    description: EarnedWeight is the weight earned toward the score.
+                    format: int32
+                    type: integer
+                  expired:
+                    description: Expired reports whether the assessment has expired;
+                      when true every in-scope check earns 0.
+                    type: boolean
+                  expires:
+                    description: Expires is the assessment-level expiry boundary (YYYY-MM-DD).
+                    type: string
                   minScore:
                     description: MinScore is the gate threshold (the declared readiness.minScore,
                       or 100 when omitted).
                     format: int32
                     type: integer
+                  notDoneCount:
+                    description: NotDoneCount is the number of checks declared not-done.
+                    format: int32
+                    type: integer
+                  partialCount:
+                    description: PartialCount is the number of checks declared partial.
+                    format: int32
+                    type: integer
                   passing:
-                    description: Passing reports whether the readiness gate is met
-                      (Score >= MinScore).
+                    description: Passing reports whether the gate is met (not expired
+                      and Score >= MinScore).
                     type: boolean
+                  revisions:
+                    description: Revisions is the declared readiness revision history.
+                    items:
+                      description: ReadinessRevisionStatus is one declared readiness
+                        revision-history entry.
+                      properties:
+                        author:
+                          description: Author is who performed the assessment.
+                          type: string
+                        date:
+                          description: Date is the date the revision was assessed
+                            (YYYY-MM-DD).
+                          type: string
+                        description:
+                          description: Description summarizes what changed or was
+                            observed.
+                          type: string
+                        version:
+                          description: Version is the service version assessed in
+                            this revision.
+                          type: string
+                      required:
+                      - author
+                      - date
+                      - description
+                      - version
+                      type: object
+                    type: array
                   score:
-                    description: Score is the percentage of declared weight that is
-                      currently satisfied (0-100).
+                    description: Score is the percentage of in-scope weight earned
+                      (0-100).
                     format: int32
                     type: integer
                   totalWeight:
-                    description: TotalWeight is the sum of all declared check weights.
+                    description: TotalWeight is the sum of in-scope (non-deferred)
+                      check weights.
                     format: int32
                     type: integer
                 type: object

@@ -48,7 +48,8 @@ pactoVersion: "1.0"
 service:
   name: simple-svc
   version: 1.0.0
-  owner: team-test
+  owner:
+    team: team-test
 interfaces:
   - name: http-api
     type: http
@@ -60,7 +61,8 @@ pactoVersion: "1.0"
 service:
   name: runtime-svc
   version: 2.0.0
-  owner: team-runtime
+  owner:
+    team: team-runtime
   image:
     ref: docker.io/library/nginx:latest
 interfaces:
@@ -85,7 +87,8 @@ pactoVersion: "1.0"
 service:
   name: stateful-svc
   version: 1.0.0
-  owner: team-data
+  owner:
+    team: team-data
 interfaces:
   - name: http-api
     type: http
@@ -119,7 +122,8 @@ pactoVersion: "1.0"
 service:
   name: config-svc
   version: 1.0.0
-  owner: team-config
+  owner:
+    team: team-config
 interfaces:
   - name: http-api
     type: http
@@ -138,7 +142,8 @@ pactoVersion: "1.0"
 service:
   name: multi-config-svc
   version: 1.0.0
-  owner: team-platform
+  owner:
+    team: team-platform
 interfaces:
   - name: http-api
     type: http
@@ -158,7 +163,8 @@ pactoVersion: "1.0"
 service:
   name: policy-svc
   version: 1.0.0
-  owner: team-security
+  owner:
+    team: team-security
 interfaces:
   - name: http-api
     type: http
@@ -176,7 +182,8 @@ pactoVersion: "1.0"
 service:
   name: single-policy-svc
   version: 1.0.0
-  owner: team-ops
+  owner:
+    team: team-ops
 interfaces:
   - name: http-api
     type: http
@@ -186,49 +193,53 @@ policies:
     schema: ops-policy.json
 `
 
-	// contractReadinessAllCurrent is a 1.1 reference contract whose readiness
-	// checks are all current (far-future expiry → deterministic regardless of
-	// when the suite runs).
+	// contractReadinessAllCurrent is a 1.2 reference contract whose readiness
+	// checks are all done with a far-future assessment expiry → score 100,
+	// deterministic regardless of when the suite runs.
 	contractReadinessAllCurrent = `
-pactoVersion: "1.1"
+pactoVersion: "1.2"
 service:
   name: readiness-current-svc
   version: 1.0.0
-  owner: team-readiness
+  owner:
+    team: team-readiness
 readiness:
+  expires: "2099-12-31"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://grafana.example.com/d/readiness-current
       weight: 60
-      expires: "2099-12-31"
     - id: runbook
       type: document
+      status: done
       evidence: docs/runbooks/readiness-current.md
       weight: 40
-      expires: "2099-09-30"
 `
 
-	// contractReadinessMixed is a 1.1 reference contract with one current and one
-	// expired check (far-past expiry → always expired).
+	// contractReadinessMixed is a 1.2 reference contract with one done and one
+	// not-done check → score 70, below the default minScore (gate unmet).
 	contractReadinessMixed = `
-pactoVersion: "1.1"
+pactoVersion: "1.2"
 service:
   name: readiness-mixed-svc
   version: 1.0.0
-  owner: team-readiness
+  owner:
+    team: team-readiness
 readiness:
+  expires: "2099-12-31"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://grafana.example.com/d/readiness-mixed
       weight: 70
-      expires: "2099-12-31"
     - id: security-review
       type: ticket
+      status: not-done
       evidence: SEC-1
       weight: 30
-      expires: "2000-01-15"
 `
 )
 
@@ -783,8 +794,8 @@ var _ = Describe("Operator", Ordered, func() {
 				g.Expect(status.Readiness).NotTo(BeNil(), "expected status.readiness to be populated")
 				g.Expect(status.Readiness.Score).To(Equal(float64(100)))
 				g.Expect(status.Readiness.TotalWeight).To(Equal(float64(100)))
-				g.Expect(status.Readiness.CurrentCount).To(Equal(float64(2)))
-				g.Expect(status.Readiness.ExpiredCount).To(Equal(float64(0)))
+				g.Expect(status.Readiness.DoneCount).To(Equal(float64(2)))
+				g.Expect(status.Readiness.Expired).To(BeFalse())
 				g.Expect(status.Readiness.Checks).To(HaveLen(2))
 
 				cond := findCondition(status.Conditions, "ReadinessSatisfied")
@@ -794,8 +805,8 @@ var _ = Describe("Operator", Ordered, func() {
 			}, 60*time.Second, 2*time.Second).Should(Succeed())
 		})
 
-		It("sets ReadinessChecksCurrent=False (ReadinessExpired) without affecting contractStatus", func() {
-			name := "e2e-readiness-expired"
+		It("sets ReadinessSatisfied=False (BelowMinScore) without affecting contractStatus", func() {
+			name := "e2e-readiness-belowmin"
 			applyPacto(name, testNamespace, contractReadinessMixed, "", nil)
 			DeferCleanup(deletePacto, name, testNamespace)
 
@@ -803,15 +814,15 @@ var _ = Describe("Operator", Ordered, func() {
 				status := getPactoStatus(g, name, testNamespace)
 				g.Expect(status.Readiness).NotTo(BeNil())
 				g.Expect(status.Readiness.Score).To(Equal(float64(70)))
-				g.Expect(status.Readiness.ExpiredCount).To(Equal(float64(1)))
-				g.Expect(status.Readiness.CurrentCount).To(Equal(float64(1)))
+				g.Expect(status.Readiness.DoneCount).To(Equal(float64(1)))
+				g.Expect(status.Readiness.NotDoneCount).To(Equal(float64(1)))
 
 				cond := findCondition(status.Conditions, "ReadinessSatisfied")
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal("False"))
 				g.Expect(cond.Reason).To(Equal("BelowMinScore"))
 
-				// Readiness is a separate dimension — an expired check must not make
+				// Readiness is a separate dimension — an unmet gate must not make
 				// an otherwise-valid reference contract non-compliant.
 				g.Expect(status.ContractStatus).To(Equal("Reference"))
 			}, 60*time.Second, 2*time.Second).Should(Succeed())
@@ -908,20 +919,26 @@ type pactoStatus struct {
 
 type readinessStatus struct {
 	Score         float64                `json:"score"`
+	MinScore      float64                `json:"minScore"`
 	TotalWeight   float64                `json:"totalWeight"`
-	CurrentWeight float64                `json:"currentWeight"`
-	CurrentCount  float64                `json:"currentCount"`
-	ExpiredCount  float64                `json:"expiredCount"`
+	EarnedWeight  float64                `json:"earnedWeight"`
+	Passing       bool                   `json:"passing"`
+	Expired       bool                   `json:"expired"`
+	DoneCount     float64                `json:"doneCount"`
+	PartialCount  float64                `json:"partialCount"`
+	NotDoneCount  float64                `json:"notDoneCount"`
+	DeferredCount float64                `json:"deferredCount"`
 	Checks        []readinessCheckStatus `json:"checks"`
 }
 
 type readinessCheckStatus struct {
-	ID            string   `json:"id"`
-	Type          string   `json:"type"`
-	Status        string   `json:"status"`
-	Weight        float64  `json:"weight"`
-	Expires       string   `json:"expires"`
-	DaysRemaining *float64 `json:"daysRemaining"`
+	ID           string  `json:"id"`
+	Type         string  `json:"type"`
+	Category     string  `json:"category"`
+	Status       string  `json:"status"`
+	Weight       float64 `json:"weight"`
+	EarnedWeight float64 `json:"earnedWeight"`
+	Excluded     bool    `json:"excluded"`
 }
 
 type configurationInfo struct {

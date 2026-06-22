@@ -15,8 +15,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/readiness"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/readiness"
 )
 
 // readinessClock is the clock used to derive readiness freshness. It is a
@@ -38,7 +38,7 @@ func (r *PactoReconciler) reconcileReadiness(pacto *pactov1alpha1.Pacto, c *cont
 		return
 	}
 
-	pacto.Status.Readiness = buildReadinessStatus(eval)
+	pacto.Status.Readiness = buildReadinessStatus(eval, c.Readiness)
 
 	status, reason, msg := readinessCondition(eval)
 	r.setCondition(pacto, pactov1alpha1.ConditionReadinessSatisfied, status, reason, msg)
@@ -52,48 +52,65 @@ func (r *PactoReconciler) reconcileReadiness(pacto *pactov1alpha1.Pacto, c *cont
 }
 
 // readinessCondition maps an evaluation to the aggregate ReadinessSatisfied
-// condition. The gate is score >= minScore; when unmet, an invalid expiry is
-// surfaced distinctly from a plain below-threshold score.
+// condition. The gate is met when the assessment is current and score >= minScore;
+// an expired assessment is surfaced distinctly from a plain below-threshold score.
 func readinessCondition(eval *readiness.Result) (metav1.ConditionStatus, string, string) {
 	if eval.Passing {
 		return metav1.ConditionTrue, pactov1alpha1.ReasonReadinessSatisfied,
 			fmt.Sprintf("readiness score %d meets minScore %d", eval.Score, eval.MinScore)
 	}
-	if eval.InvalidCount > 0 {
-		return metav1.ConditionFalse, pactov1alpha1.ReasonReadinessInvalid,
-			fmt.Sprintf("readiness score %d below minScore %d; %d check(s) have an invalid expiry", eval.Score, eval.MinScore, eval.InvalidCount)
+	if eval.Expired {
+		return metav1.ConditionFalse, pactov1alpha1.ReasonReadinessExpired,
+			fmt.Sprintf("readiness assessment expired (expires %s); score %d below minScore %d", eval.Expires, eval.Score, eval.MinScore)
 	}
 	return metav1.ConditionFalse, pactov1alpha1.ReasonReadinessBelowMinScore,
-		fmt.Sprintf("readiness score %d below minScore %d (%d of %d expired)", eval.Score, eval.MinScore, eval.ExpiredCount, len(eval.Checks))
+		fmt.Sprintf("readiness score %d below minScore %d (%d done, %d partial, %d not-done, %d deferred)",
+			eval.Score, eval.MinScore, eval.DoneCount, eval.PartialCount, eval.NotDoneCount, eval.DeferredCount)
 }
 
 // buildReadinessStatus maps the pure evaluation result to the CRD status type.
-func buildReadinessStatus(eval *readiness.Result) *pactov1alpha1.ReadinessStatus {
+// The revision history lives on the declared contract (decl), not the evaluation.
+func buildReadinessStatus(eval *readiness.Result, decl *contract.Readiness) *pactov1alpha1.ReadinessStatus {
 	rs := &pactov1alpha1.ReadinessStatus{
 		Score:         int32(eval.Score),
 		MinScore:      int32(eval.MinScore),
 		Passing:       eval.Passing,
 		TotalWeight:   int32(eval.TotalWeight),
-		CurrentWeight: int32(eval.CurrentWeight),
-		CurrentCount:  int32(eval.CurrentCount),
-		ExpiredCount:  int32(eval.ExpiredCount),
+		EarnedWeight:  int32(eval.EarnedWeight),
+		Expires:       eval.Expires,
+		Expired:       eval.Expired,
+		DoneCount:     int32(eval.DoneCount),
+		PartialCount:  int32(eval.PartialCount),
+		NotDoneCount:  int32(eval.NotDoneCount),
+		DeferredCount: int32(eval.DeferredCount),
 		Checks:        make([]pactov1alpha1.ReadinessCheckStatus, 0, len(eval.Checks)),
 	}
+	if eval.DaysRemaining != nil {
+		d := int32(*eval.DaysRemaining)
+		rs.DaysRemaining = &d
+	}
 	for _, ch := range eval.Checks {
-		cs := pactov1alpha1.ReadinessCheckStatus{
-			ID:          ch.ID,
-			Type:        ch.Type,
-			Evidence:    ch.Evidence,
-			Weight:      int32(ch.Weight),
-			Expires:     ch.Expires,
-			Description: ch.Description,
-			Status:      string(ch.Status),
+		rs.Checks = append(rs.Checks, pactov1alpha1.ReadinessCheckStatus{
+			ID:           ch.ID,
+			Type:         ch.Type,
+			Category:     ch.Category,
+			Status:       ch.Status,
+			Evidence:     ch.Evidence,
+			Description:  ch.Description,
+			Weight:       int32(ch.Weight),
+			EarnedWeight: int32(ch.EarnedWeight),
+			Excluded:     ch.Excluded,
+		})
+	}
+	if decl != nil {
+		for _, rev := range decl.History {
+			rs.Revisions = append(rs.Revisions, pactov1alpha1.ReadinessRevisionStatus{
+				Date:        rev.Date,
+				Version:     rev.Version,
+				Author:      rev.Author,
+				Description: rev.Description,
+			})
 		}
-		if ch.DaysRemaining != nil {
-			d := int32(*ch.DaysRemaining)
-			cs.DaysRemaining = &d
-		}
-		rs.Checks = append(rs.Checks, cs)
 	}
 	return rs
 }
