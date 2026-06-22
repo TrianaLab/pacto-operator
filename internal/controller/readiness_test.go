@@ -17,11 +17,16 @@ import (
 	"k8s.io/client-go/tools/record"
 
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/readiness"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/readiness"
 )
 
 var readinessNow = time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+
+const (
+	futureExpires = "2026-12-31"
+	pastExpires   = "2026-01-15"
+)
 
 func pinReadinessClock(t *testing.T, at time.Time) {
 	t.Helper()
@@ -30,19 +35,34 @@ func pinReadinessClock(t *testing.T, at time.Time) {
 	t.Cleanup(func() { readinessClock = old })
 }
 
-func rdCheck(id string, weight int, expires string) contract.ReadinessCheck {
-	return contract.ReadinessCheck{ID: id, Type: "url", Evidence: "https://example.com/" + id, Weight: weight, Expires: expires}
+// rdCheck builds a declared readiness check with the given id, weight and status.
+func rdCheck(id string, weight int, status string) contract.ReadinessCheck {
+	return contract.ReadinessCheck{
+		ID:       id,
+		Type:     "url",
+		Category: "documentation",
+		Status:   status,
+		Evidence: "https://example.com/" + id,
+		Weight:   weight,
+	}
 }
 
-func rdContract(checks ...contract.ReadinessCheck) *contract.Contract {
+// rdContractExpires builds a v1.2 contract whose readiness expires on the given
+// date (assessment-level). With no checks, no readiness block is set.
+func rdContractExpires(expires string, checks ...contract.ReadinessCheck) *contract.Contract {
 	c := &contract.Contract{
-		PactoVersion: "1.1",
+		PactoVersion: "1.2",
 		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
 	}
 	if len(checks) > 0 {
-		c.Readiness = &contract.Readiness{Checks: checks}
+		c.Readiness = &contract.Readiness{Expires: expires, Checks: checks}
 	}
 	return c
+}
+
+// rdContract builds a v1.2 contract with a far-future (current) assessment expiry.
+func rdContract(checks ...contract.ReadinessCheck) *contract.Contract {
+	return rdContractExpires(futureExpires, checks...)
 }
 
 func drainEvents(rec *record.FakeRecorder) []string {
@@ -67,9 +87,8 @@ func TestReadinessCondition(t *testing.T) {
 		wantReason string
 	}{
 		{"passing", &readiness.Result{Passing: true, Score: 100, MinScore: 100, Checks: make([]readiness.CheckResult, 2)}, metav1.ConditionTrue, pactov1alpha1.ReasonReadinessSatisfied},
-		{"below min score", &readiness.Result{Passing: false, Score: 60, MinScore: 100, ExpiredCount: 1, Checks: make([]readiness.CheckResult, 2)}, metav1.ConditionFalse, pactov1alpha1.ReasonReadinessBelowMinScore},
-		{"invalid", &readiness.Result{Passing: false, Score: 50, MinScore: 100, InvalidCount: 1, Checks: make([]readiness.CheckResult, 2)}, metav1.ConditionFalse, pactov1alpha1.ReasonReadinessInvalid},
-		{"passing despite expired (low minScore)", &readiness.Result{Passing: true, Score: 60, MinScore: 50, ExpiredCount: 1, Checks: make([]readiness.CheckResult, 2)}, metav1.ConditionTrue, pactov1alpha1.ReasonReadinessSatisfied},
+		{"below min score", &readiness.Result{Passing: false, Score: 60, MinScore: 100, DoneCount: 1, NotDoneCount: 1, Checks: make([]readiness.CheckResult, 2)}, metav1.ConditionFalse, pactov1alpha1.ReasonReadinessBelowMinScore},
+		{"expired", &readiness.Result{Passing: false, Score: 0, MinScore: 100, Expired: true, Expires: pastExpires, Checks: make([]readiness.CheckResult, 2)}, metav1.ConditionFalse, pactov1alpha1.ReasonReadinessExpired},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,29 +109,63 @@ func TestReadinessCondition(t *testing.T) {
 // ---------- buildReadinessStatus ----------
 
 func TestBuildReadinessStatus(t *testing.T) {
-	eval := readiness.Evaluate(rdContract(
-		rdCheck("dashboard", 60, "2026-12-31"),
-		rdCheck("security-review", 40, "2026-01-15"),
-	).Readiness, readinessNow)
+	c := &contract.Contract{
+		PactoVersion: "1.2",
+		Service:      contract.ServiceIdentity{Name: "svc", Version: "1.0.0"},
+		Readiness: &contract.Readiness{
+			Expires: futureExpires,
+			History: []contract.ReadinessRevision{
+				{Date: "2026-06-01", Version: "1.0.0", Author: "alice", Description: "initial assessment"},
+			},
+			Checks: []contract.ReadinessCheck{
+				rdCheck("dashboard", 60, contract.StatusDone),
+				rdCheck("runbook", 20, contract.StatusPartial),
+				rdCheck("dr-drill", 20, contract.StatusDeferred),
+			},
+		},
+	}
+	eval := readiness.Evaluate(c.Readiness, readinessNow)
+	rs := buildReadinessStatus(eval, c.Readiness)
 
-	rs := buildReadinessStatus(eval)
-	if rs.Score != 60 || rs.TotalWeight != 100 || rs.CurrentWeight != 60 {
-		t.Errorf("unexpected summary: %+v", rs)
+	// deferred is excluded from the total: total = 60 + 20 = 80;
+	// earned = 60 + round(20*0.5)=10 = 70; score = round(70/80*100) = 88.
+	if rs.Score != 88 || rs.TotalWeight != 80 || rs.EarnedWeight != 70 {
+		t.Errorf("unexpected summary: score=%d total=%d earned=%d", rs.Score, rs.TotalWeight, rs.EarnedWeight)
 	}
 	if rs.MinScore != 100 || rs.Passing {
 		t.Errorf("expected default minScore 100 and not passing, got minScore=%d passing=%v", rs.MinScore, rs.Passing)
 	}
-	if rs.CurrentCount != 1 || rs.ExpiredCount != 1 {
-		t.Errorf("unexpected counts: current=%d expired=%d", rs.CurrentCount, rs.ExpiredCount)
+	if rs.Expired || rs.Expires != futureExpires || rs.DaysRemaining == nil {
+		t.Errorf("expected current assessment with daysRemaining, got expired=%v expires=%s days=%v", rs.Expired, rs.Expires, rs.DaysRemaining)
 	}
-	if len(rs.Checks) != 2 {
-		t.Fatalf("expected 2 checks, got %d", len(rs.Checks))
+	if rs.DoneCount != 1 || rs.PartialCount != 1 || rs.NotDoneCount != 0 || rs.DeferredCount != 1 {
+		t.Errorf("unexpected counts: done=%d partial=%d notDone=%d deferred=%d", rs.DoneCount, rs.PartialCount, rs.NotDoneCount, rs.DeferredCount)
 	}
-	if rs.Checks[0].Status != "Current" || rs.Checks[0].DaysRemaining == nil {
-		t.Errorf("expected first check Current with daysRemaining, got %+v", rs.Checks[0])
+	if len(rs.Checks) != 3 {
+		t.Fatalf("expected 3 checks, got %d", len(rs.Checks))
 	}
-	if rs.Checks[1].Status != "Expired" || rs.Checks[1].DaysRemaining != nil {
-		t.Errorf("expected second check Expired without daysRemaining, got %+v", rs.Checks[1])
+	if rs.Checks[0].Status != contract.StatusDone || rs.Checks[0].Category != "documentation" || rs.Checks[0].EarnedWeight != 60 || rs.Checks[0].Excluded {
+		t.Errorf("unexpected done check: %+v", rs.Checks[0])
+	}
+	if rs.Checks[1].Status != contract.StatusPartial || rs.Checks[1].EarnedWeight != 10 {
+		t.Errorf("unexpected partial check: %+v", rs.Checks[1])
+	}
+	if rs.Checks[2].Status != contract.StatusDeferred || !rs.Checks[2].Excluded || rs.Checks[2].EarnedWeight != 0 {
+		t.Errorf("expected deferred check excluded with 0 earned, got %+v", rs.Checks[2])
+	}
+	if len(rs.Revisions) != 1 || rs.Revisions[0].Author != "alice" || rs.Revisions[0].Version != "1.0.0" {
+		t.Errorf("unexpected revisions: %+v", rs.Revisions)
+	}
+}
+
+func TestBuildReadinessStatus_Expired(t *testing.T) {
+	c := rdContractExpires(pastExpires, rdCheck("dashboard", 100, contract.StatusDone))
+	eval := readiness.Evaluate(c.Readiness, readinessNow)
+	rs := buildReadinessStatus(eval, c.Readiness)
+
+	// An expired assessment zeroes earned weight even though the check is done.
+	if !rs.Expired || rs.Score != 0 || rs.EarnedWeight != 0 || rs.DaysRemaining != nil {
+		t.Errorf("expected expired assessment with score 0, got %+v", rs)
 	}
 }
 
@@ -139,50 +192,50 @@ func TestReconcileReadiness_NoReadiness(t *testing.T) {
 	}
 }
 
-func TestReconcileReadiness_AllCurrent_NoEvent(t *testing.T) {
+func TestReconcileReadiness_Passing_NoEvent(t *testing.T) {
 	pinReadinessClock(t, readinessNow)
 	r, rec := newReadinessReconciler()
 	pacto := &pactov1alpha1.Pacto{}
-	r.reconcileReadiness(pacto, rdContract(rdCheck("dashboard", 100, "2026-12-31")), false)
+	r.reconcileReadiness(pacto, rdContract(rdCheck("dashboard", 100, contract.StatusDone)), false)
 
 	if pacto.Status.Readiness == nil || pacto.Status.Readiness.Score != 100 {
 		t.Fatalf("expected readiness score 100, got %+v", pacto.Status.Readiness)
 	}
 	cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
 	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != pactov1alpha1.ReasonReadinessSatisfied {
-		t.Fatalf("expected True/ReadinessAllCurrent, got %+v", cond)
+		t.Fatalf("expected True/Satisfied, got %+v", cond)
 	}
 	if events := drainEvents(rec); len(events) != 0 {
-		t.Errorf("expected no events when all current, got %v", events)
+		t.Errorf("expected no events when passing, got %v", events)
 	}
 }
 
-func TestReconcileReadiness_Expired_EmitsWarningOnTransition(t *testing.T) {
+func TestReconcileReadiness_BelowMin_EmitsWarningOnTransition(t *testing.T) {
 	pinReadinessClock(t, readinessNow)
 	r, rec := newReadinessReconciler()
 	pacto := &pactov1alpha1.Pacto{}
-	// wasNotCurrent=false → transition into expired → warning event.
-	r.reconcileReadiness(pacto, rdContract(rdCheck("security-review", 50, "2026-01-15")), false)
+	// A not-done check scores 0, below the default minScore 100; wasUnmet=false → warning.
+	r.reconcileReadiness(pacto, rdContract(rdCheck("security-review", 50, contract.StatusNotDone)), false)
 
 	cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
 	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != pactov1alpha1.ReasonReadinessBelowMinScore {
-		t.Fatalf("expected False/ReadinessExpired, got %+v", cond)
+		t.Fatalf("expected False/BelowMinScore, got %+v", cond)
 	}
 	events := drainEvents(rec)
 	if len(events) != 1 || !strings.Contains(events[0], pactov1alpha1.EventReadinessGateUnmet) || !strings.Contains(events[0], "Warning") {
-		t.Errorf("expected one Warning ReadinessExpired event, got %v", events)
+		t.Errorf("expected one Warning ReadinessGateUnmet event, got %v", events)
 	}
 }
 
-func TestReconcileReadiness_Expired_NoEventWhenAlreadyExpired(t *testing.T) {
+func TestReconcileReadiness_BelowMin_NoEventWhenAlreadyUnmet(t *testing.T) {
 	pinReadinessClock(t, readinessNow)
 	r, rec := newReadinessReconciler()
 	pacto := &pactov1alpha1.Pacto{}
-	// wasNotCurrent=true → steady expired → no event (avoid spam).
-	r.reconcileReadiness(pacto, rdContract(rdCheck("security-review", 50, "2026-01-15")), true)
+	// wasUnmet=true → steady below-min → no event (avoid spam).
+	r.reconcileReadiness(pacto, rdContract(rdCheck("security-review", 50, contract.StatusNotDone)), true)
 
 	if events := drainEvents(rec); len(events) != 0 {
-		t.Errorf("expected no event for steady-expired, got %v", events)
+		t.Errorf("expected no event for steady-unmet, got %v", events)
 	}
 }
 
@@ -190,8 +243,8 @@ func TestReconcileReadiness_Recovered_EmitsNormalEvent(t *testing.T) {
 	pinReadinessClock(t, readinessNow)
 	r, rec := newReadinessReconciler()
 	pacto := &pactov1alpha1.Pacto{}
-	// wasNotCurrent=true and now all current → recovery event.
-	r.reconcileReadiness(pacto, rdContract(rdCheck("dashboard", 100, "2026-12-31")), true)
+	// wasUnmet=true and now passing → recovery event.
+	r.reconcileReadiness(pacto, rdContract(rdCheck("dashboard", 100, contract.StatusDone)), true)
 
 	cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
@@ -203,20 +256,37 @@ func TestReconcileReadiness_Recovered_EmitsNormalEvent(t *testing.T) {
 	}
 }
 
-func TestReconcileReadiness_Invalid(t *testing.T) {
+func TestReconcileReadiness_Expired(t *testing.T) {
 	pinReadinessClock(t, readinessNow)
 	r, rec := newReadinessReconciler()
 	pacto := &pactov1alpha1.Pacto{}
-	r.reconcileReadiness(pacto, rdContract(rdCheck("bad", 50, "not-a-date")), false)
+	// A past assessment expiry → expired; the done check still earns 0.
+	r.reconcileReadiness(pacto, rdContractExpires(pastExpires, rdCheck("dashboard", 100, contract.StatusDone)), false)
 
-	if pacto.Status.Readiness == nil || pacto.Status.Readiness.Checks[0].Status != "Invalid" {
-		t.Fatalf("expected an Invalid check, got %+v", pacto.Status.Readiness)
+	if pacto.Status.Readiness == nil || !pacto.Status.Readiness.Expired || pacto.Status.Readiness.Score != 0 {
+		t.Fatalf("expected expired readiness with score 0, got %+v", pacto.Status.Readiness)
 	}
 	cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
-	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != pactov1alpha1.ReasonReadinessInvalid {
-		t.Fatalf("expected False/ReadinessInvalid, got %+v", cond)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != pactov1alpha1.ReasonReadinessExpired {
+		t.Fatalf("expected False/Expired, got %+v", cond)
 	}
 	if events := drainEvents(rec); len(events) != 1 {
-		t.Errorf("expected one event for invalid transition, got %v", events)
+		t.Errorf("expected one event for expired transition, got %v", events)
+	}
+}
+
+func TestReconcileReadiness_InvalidExpiresFailsClosed(t *testing.T) {
+	pinReadinessClock(t, readinessNow)
+	r, _ := newReadinessReconciler()
+	pacto := &pactov1alpha1.Pacto{}
+	// An unparseable assessment expiry is treated as expired (fail-closed).
+	r.reconcileReadiness(pacto, rdContractExpires("not-a-date", rdCheck("dashboard", 100, contract.StatusDone)), false)
+
+	if pacto.Status.Readiness == nil || !pacto.Status.Readiness.Expired {
+		t.Fatalf("expected expired (fail-closed) readiness, got %+v", pacto.Status.Readiness)
+	}
+	cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
+	if cond == nil || cond.Reason != pactov1alpha1.ReasonReadinessExpired {
+		t.Fatalf("expected Expired reason, got %+v", cond)
 	}
 }

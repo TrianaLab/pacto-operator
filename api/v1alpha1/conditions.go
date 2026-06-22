@@ -99,7 +99,7 @@ const (
 	// Readiness condition reasons (for ConditionReadinessSatisfied).
 	ReasonReadinessSatisfied     = "Satisfied"
 	ReasonReadinessBelowMinScore = "BelowMinScore"
-	ReasonReadinessInvalid       = "Invalid"
+	ReasonReadinessExpired       = "Expired"
 )
 
 // Event reasons (free-form, emitted via the recorder). Readiness events are

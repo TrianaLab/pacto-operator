@@ -38,10 +38,10 @@ import (
 	"github.com/trianalab/pacto-operator/internal/observer"
 	"github.com/trianalab/pacto-operator/internal/prober"
 	"github.com/trianalab/pacto-operator/internal/validator"
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/oci"
-	"github.com/trianalab/pacto/pkg/schemax"
-	"github.com/trianalab/pacto/pkg/validation"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/oci"
+	"github.com/trianalab/pacto/v2/pkg/schemax"
+	"github.com/trianalab/pacto/v2/pkg/validation"
 )
 
 // ContractLoader abstracts contract loading and tag listing.
@@ -1124,29 +1124,21 @@ func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // mapOwnerToInfo converts a contract.Owner to the CRD OwnerInfo representation.
-// For legacy string owners, the string is placed in the Team field.
-// For structured owners, all fields are mapped directly.
+// Owner is object-only (team, DRI, contacts); fields are mapped directly.
 func mapOwnerToInfo(o contract.Owner) *pactov1alpha1.OwnerInfo {
 	if o.IsEmpty() {
 		return nil
 	}
-	if o.IsStructured() {
-		info := o.Info()
-		result := &pactov1alpha1.OwnerInfo{
-			Team: info.Team,
-			DRI:  info.DRI,
-		}
-		for _, c := range info.Contacts {
-			result.Contacts = append(result.Contacts, pactov1alpha1.OwnerContact{
-				Type:    c.Type,
-				Value:   c.Value,
-				Purpose: c.Purpose,
-			})
-		}
-		return result
+	result := &pactov1alpha1.OwnerInfo{
+		Team: o.Team,
+		DRI:  o.DRI,
 	}
-	// Legacy string owner: store in Team field for uniform access.
-	return &pactov1alpha1.OwnerInfo{
-		Team: o.String(),
+	for _, c := range o.Contacts {
+		result.Contacts = append(result.Contacts, pactov1alpha1.OwnerContact{
+			Type:    c.Type,
+			Value:   c.Value,
+			Purpose: c.Purpose,
+		})
 	}
+	return result
 }

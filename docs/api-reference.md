@@ -86,8 +86,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `serviceName` _string_ | ServiceName is the service name declared in the contract. |  |  |
 | `version` _string_ | Version is the semver version from the contract. |  |  |
-| `owner` _[OwnerInfo](#ownerinfo)_ | Owner contains the structured ownership metadata from the contract.<br />For structured owners this includes team, DRI, and contacts.<br />For legacy string owners this is converted to OwnerInfo with the Team field set. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
-| `ownerDisplay` _string_ | OwnerDisplay is the canonical display string derived from owner metadata.<br />Precedence: structured team > legacy string > structured DRI.<br />Useful for printer columns, dashboards, and backward-compatible consumers. |  | Optional: \{\} <br /> |
+| `owner` _[OwnerInfo](#ownerinfo)_ | Owner contains the structured ownership metadata from the contract<br />(team, DRI, and contacts). |  | MinProperties: 1 <br />Optional: \{\} <br /> |
+| `ownerDisplay` _string_ | OwnerDisplay is the canonical display string derived from owner metadata.<br />Precedence: team > DRI.<br />Useful for printer columns, dashboards, and backward-compatible consumers. |  | Optional: \{\} <br /> |
 | `imageRef` _string_ | ImageRef is the container image reference from the contract. |  | Optional: \{\} <br /> |
 | `resolvedRef` _string_ | ResolvedRef is the fully-resolved OCI reference (with tag/digest).<br />Empty for inline contracts. |  | Optional: \{\} <br /> |
 
@@ -460,12 +460,32 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `id` _string_ | ID is the readiness requirement identifier (e.g. dashboard, runbook). |  | Required: \{\} <br /> |
 | `type` _string_ | Type classifies the evidence pointer (url, document, ticket, report, artifact, identifier, other). |  | Required: \{\} <br /> |
-| `evidence` _string_ | Evidence is the declared pointer to the evidence. |  | Required: \{\} <br /> |
-| `weight` _integer_ | Weight is the declared contribution to the readiness score (0-100). |  | Required: \{\} <br /> |
-| `expires` _string_ | Expires is the declared freshness boundary (YYYY-MM-DD). |  | Required: \{\} <br /> |
+| `category` _string_ | Category is the software-domain category (security, documentation, observability, etc.). |  | Optional: \{\} <br /> |
+| `status` _string_ | Status is the declared completion status. |  | Enum: [done partial not-done deferred] <br />Required: \{\} <br /> |
+| `evidence` _string_ | Evidence is the declared pointer to the evidence. |  | Optional: \{\} <br /> |
 | `description` _string_ | Description is the optional human-readable explanation. |  | Optional: \{\} <br /> |
-| `status` _string_ | Status is the derived check status. |  | Enum: [Current Expired Invalid] <br />Required: \{\} <br /> |
-| `daysRemaining` _integer_ | DaysRemaining is the number of whole days until expiry, for current checks. |  | Optional: \{\} <br /> |
+| `weight` _integer_ | Weight is the declared contribution to the readiness score (0-100). |  | Required: \{\} <br /> |
+| `earnedWeight` _integer_ | EarnedWeight is the weight this check contributed toward the score. |  | Optional: \{\} <br /> |
+| `excluded` _boolean_ | Excluded reports whether the check is excluded from scoring (deferred). |  | Optional: \{\} <br /> |
+
+
+#### ReadinessRevisionStatus
+
+
+
+ReadinessRevisionStatus is one declared readiness revision-history entry.
+
+
+
+_Appears in:_
+- [ReadinessStatus](#readinessstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `date` _string_ | Date is the date the revision was assessed (YYYY-MM-DD). |  | Required: \{\} <br /> |
+| `version` _string_ | Version is the service version assessed in this revision. |  | Required: \{\} <br /> |
+| `author` _string_ | Author is who performed the assessment. |  | Required: \{\} <br /> |
+| `description` _string_ | Description summarizes what changed or was observed. |  | Required: \{\} <br /> |
 
 
 #### ReadinessStatus
@@ -483,13 +503,19 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `score` _integer_ | Score is the percentage of declared weight that is currently satisfied (0-100). |  | Optional: \{\} <br /> |
+| `score` _integer_ | Score is the percentage of in-scope weight earned (0-100). |  | Optional: \{\} <br /> |
 | `minScore` _integer_ | MinScore is the gate threshold (the declared readiness.minScore, or 100 when omitted). |  | Optional: \{\} <br /> |
-| `passing` _boolean_ | Passing reports whether the readiness gate is met (Score >= MinScore). |  | Optional: \{\} <br /> |
-| `totalWeight` _integer_ | TotalWeight is the sum of all declared check weights. |  | Optional: \{\} <br /> |
-| `currentWeight` _integer_ | CurrentWeight is the sum of weights of non-expired (current) checks. |  | Optional: \{\} <br /> |
-| `currentCount` _integer_ | CurrentCount is the number of current checks. |  | Optional: \{\} <br /> |
-| `expiredCount` _integer_ | ExpiredCount is the number of expired checks. |  | Optional: \{\} <br /> |
+| `passing` _boolean_ | Passing reports whether the gate is met (not expired and Score >= MinScore). |  | Optional: \{\} <br /> |
+| `totalWeight` _integer_ | TotalWeight is the sum of in-scope (non-deferred) check weights. |  | Optional: \{\} <br /> |
+| `earnedWeight` _integer_ | EarnedWeight is the weight earned toward the score. |  | Optional: \{\} <br /> |
+| `expires` _string_ | Expires is the assessment-level expiry boundary (YYYY-MM-DD). |  | Optional: \{\} <br /> |
+| `expired` _boolean_ | Expired reports whether the assessment has expired; when true every in-scope check earns 0. |  | Optional: \{\} <br /> |
+| `daysRemaining` _integer_ | DaysRemaining is the number of whole days until expiry (nil when expired). |  | Optional: \{\} <br /> |
+| `doneCount` _integer_ | DoneCount is the number of checks declared done. |  | Optional: \{\} <br /> |
+| `partialCount` _integer_ | PartialCount is the number of checks declared partial. |  | Optional: \{\} <br /> |
+| `notDoneCount` _integer_ | NotDoneCount is the number of checks declared not-done. |  | Optional: \{\} <br /> |
+| `deferredCount` _integer_ | DeferredCount is the number of checks declared deferred (excluded from scoring). |  | Optional: \{\} <br /> |
+| `revisions` _[ReadinessRevisionStatus](#readinessrevisionstatus) array_ | Revisions is the declared readiness revision history. |  | Optional: \{\} <br /> |
 | `checks` _[ReadinessCheckStatus](#readinesscheckstatus) array_ | Checks is the derived per-check readiness status. |  | Optional: \{\} <br /> |
 
 

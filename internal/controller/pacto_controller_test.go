@@ -28,7 +28,8 @@ pactoVersion: "1.0"
 service:
   name: test-svc
   version: 1.0.0
-  owner: team-a
+  owner:
+    team: team-a
 interfaces:
   - name: http-api
     type: http
@@ -422,43 +423,47 @@ func deleteDeployment(name, namespace string) {
 }
 
 const readinessContract = `
-pactoVersion: "1.1"
+pactoVersion: "1.2"
 service:
   name: readiness-svc
   version: 1.0.0
-  owner: team-a
+  owner:
+    team: team-a
 readiness:
+  expires: "2099-12-31"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://grafana.company.com/readiness-svc
       weight: 60
-      expires: "2099-12-31"
     - id: runbook
       type: document
+      status: done
       evidence: docs/runbooks/readiness-svc.md
       weight: 40
-      expires: "2099-09-30"
 `
 
 const readinessExpiredContract = `
-pactoVersion: "1.1"
+pactoVersion: "1.2"
 service:
   name: readiness-expired-svc
   version: 1.0.0
-  owner: team-a
+  owner:
+    team: team-a
 readiness:
+  expires: "2000-01-15"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://grafana.company.com/readiness-expired-svc
       weight: 60
-      expires: "2099-12-31"
     - id: security-review
       type: ticket
+      status: done
       evidence: SEC-1
       weight: 40
-      expires: "2000-01-15"
 `
 
 var _ = Describe("Pacto Controller Readiness", func() {
@@ -490,8 +495,8 @@ var _ = Describe("Pacto Controller Readiness", func() {
 				g.Expect(pacto.Status.Readiness).NotTo(BeNil())
 				g.Expect(pacto.Status.Readiness.Score).To(Equal(int32(100)))
 				g.Expect(pacto.Status.Readiness.TotalWeight).To(Equal(int32(100)))
-				g.Expect(pacto.Status.Readiness.CurrentCount).To(Equal(int32(2)))
-				g.Expect(pacto.Status.Readiness.ExpiredCount).To(Equal(int32(0)))
+				g.Expect(pacto.Status.Readiness.DoneCount).To(Equal(int32(2)))
+				g.Expect(pacto.Status.Readiness.Expired).To(BeFalse())
 				g.Expect(pacto.Status.Readiness.Checks).To(HaveLen(2))
 
 				cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
@@ -530,12 +535,13 @@ var _ = Describe("Pacto Controller Readiness", func() {
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
 
 				g.Expect(pacto.Status.Readiness).NotTo(BeNil())
-				g.Expect(pacto.Status.Readiness.ExpiredCount).To(Equal(int32(1)))
+				g.Expect(pacto.Status.Readiness.Expired).To(BeTrue())
+				g.Expect(pacto.Status.Readiness.Score).To(Equal(int32(0)))
 
 				cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(cond.Reason).To(Equal(pactov1alpha1.ReasonReadinessBelowMinScore))
+				g.Expect(cond.Reason).To(Equal(pactov1alpha1.ReasonReadinessExpired))
 
 				// Expired readiness does NOT make the contract non-compliant.
 				g.Expect(pacto.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusReference))

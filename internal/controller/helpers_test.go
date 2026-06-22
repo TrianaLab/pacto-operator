@@ -23,8 +23,8 @@ import (
 	"github.com/trianalab/pacto-operator/internal/observer"
 	"github.com/trianalab/pacto-operator/internal/prober"
 	"github.com/trianalab/pacto-operator/internal/validator"
-	"github.com/trianalab/pacto/pkg/contract"
-	"github.com/trianalab/pacto/pkg/validation"
+	"github.com/trianalab/pacto/v2/pkg/contract"
+	"github.com/trianalab/pacto/v2/pkg/validation"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -311,7 +311,7 @@ func TestPopulateContractStatus_Full(t *testing.T) {
 			Service: contract.ServiceIdentity{
 				Name:    "my-svc",
 				Version: "1.2.0",
-				Owner:   contract.NewOwnerFromString("team-x"),
+				Owner:   contract.Owner{Team: "team-x"},
 				Image:   &contract.Image{Ref: "ghcr.io/org/my-svc:1.2.0", Private: true},
 			},
 			Interfaces: []contract.Interface{
@@ -2514,27 +2514,29 @@ func TestReconcile_ObserverError_SetsUnknownWithSummary(t *testing.T) {
 // with a fake recorder; this covers the Reconcile->reconcileReadiness wiring that
 // a regression could silently break while every unit test still passes.
 //
-// (The Invalid reason is intentionally not exercised here: validation rejects a
-// malformed expires with INVALID_READINESS_EXPIRES before readiness runs, so an
-// Invalid check is unreachable through full Reconcile — it is covered at the
-// reconcileReadiness unit level in readiness_test.go.)
+// (The Expired reason is exercised at the reconcileReadiness unit level in
+// readiness_test.go; here the gate is unmet via a not-done check on a current
+// assessment, yielding False/BelowMinScore.)
 func TestReconcile_ReadinessWiring_GateUnmetEmitsEvent(t *testing.T) {
-	const rdYAML = `pactoVersion: "1.1"
+	const rdYAML = `pactoVersion: "1.2"
 service:
   name: rd-recon-svc
   version: 1.0.0
+  owner:
+    team: team-a
 readiness:
+  expires: "2099-12-31"
   checks:
     - id: dashboard
       type: url
+      status: done
       evidence: https://grafana.example.com/d/rd
       weight: 60
-      expires: "2099-12-31"
     - id: security-review
       type: ticket
+      status: not-done
       evidence: SEC-1842
       weight: 40
-      expires: "2000-01-15"
 `
 	c, err := contract.Parse(strings.NewReader(rdYAML))
 	if err != nil {
@@ -4211,8 +4213,8 @@ func TestMapOwnerToInfo_Empty(t *testing.T) {
 	}
 }
 
-func TestMapOwnerToInfo_LegacyString(t *testing.T) {
-	o := contract.NewOwnerFromString("team/payments")
+func TestMapOwnerToInfo_TeamOnly(t *testing.T) {
+	o := contract.Owner{Team: "team/payments"}
 	result := mapOwnerToInfo(o)
 	if result == nil {
 		t.Fatal("expected non-nil for string owner")
@@ -4230,7 +4232,7 @@ func TestMapOwnerToInfo_LegacyString(t *testing.T) {
 }
 
 func TestMapOwnerToInfo_Structured(t *testing.T) {
-	o := contract.NewOwnerFromInfo(contract.OwnerInfo{
+	o := contract.Owner{
 		Team: "platform-foundations",
 		DRI:  "alice.johnson",
 		Contacts: []contract.OwnerContact{
@@ -4238,7 +4240,7 @@ func TestMapOwnerToInfo_Structured(t *testing.T) {
 			{Type: "chat", Value: "#platform-foundations", Purpose: "support"},
 			{Type: "oncall", Value: "platform-foundations-oncall", Purpose: "oncall"},
 		},
-	})
+	}
 	result := mapOwnerToInfo(o)
 	if result == nil {
 		t.Fatal("expected non-nil for structured owner")
@@ -4262,7 +4264,7 @@ func TestMapOwnerToInfo_Structured(t *testing.T) {
 }
 
 func TestMapOwnerToInfo_StructuredDRIOnly(t *testing.T) {
-	o := contract.NewOwnerFromInfo(contract.OwnerInfo{DRI: "someone"})
+	o := contract.Owner{DRI: "someone"}
 	result := mapOwnerToInfo(o)
 	if result == nil {
 		t.Fatal("expected non-nil")
@@ -4289,13 +4291,13 @@ func TestPopulateContractStatus_StructuredOwner(t *testing.T) {
 			Service: contract.ServiceIdentity{
 				Name:    "my-svc",
 				Version: "1.0.0",
-				Owner: contract.NewOwnerFromInfo(contract.OwnerInfo{
+				Owner: contract.Owner{
 					Team: "platform",
 					DRI:  "alice",
 					Contacts: []contract.OwnerContact{
 						{Type: "email", Value: "platform@acme.com", Purpose: "escalation"},
 					},
-				}),
+				},
 			},
 			Interfaces: []contract.Interface{
 				{Name: "http-api", Type: "http"},
@@ -4334,7 +4336,7 @@ func TestPopulateContractStatus_StructuredOwnerDRIOnly(t *testing.T) {
 			Service: contract.ServiceIdentity{
 				Name:    "my-svc",
 				Version: "1.0.0",
-				Owner:   contract.NewOwnerFromInfo(contract.OwnerInfo{DRI: "bob"}),
+				Owner:   contract.Owner{DRI: "bob"},
 			},
 			Interfaces: []contract.Interface{
 				{Name: "http-api", Type: "http"},
