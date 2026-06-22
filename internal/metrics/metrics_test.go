@@ -127,3 +127,29 @@ func TestRecordContractStatus_Reference(t *testing.T) {
 func TestRecordContractStatus_Unknown(t *testing.T) {
 	RecordContractStatus("default", "my-pacto", pactov1alpha1.ContractStatusUnknown)
 }
+
+func TestRecordReadiness_Nil(t *testing.T) {
+	// No readiness declared → no-op (must not panic).
+	RecordReadiness("default", "my-pacto", nil, "")
+}
+
+func TestRecordReadiness_Passing(t *testing.T) {
+	rs := &pactov1alpha1.ReadinessStatus{
+		Score: 100, Passing: true, DoneCount: 3,
+	}
+	RecordReadiness("default", "my-pacto", rs, pactov1alpha1.ReasonReadinessSatisfied)
+}
+
+func TestRecordReadiness_BelowMinScore(t *testing.T) {
+	rs := &pactov1alpha1.ReadinessStatus{
+		Score: 60, Passing: false, DoneCount: 1, PartialCount: 1, NotDoneCount: 1, DeferredCount: 1,
+	}
+	RecordReadiness("test-ns", "below-min", rs, pactov1alpha1.ReasonReadinessBelowMinScore)
+}
+
+func TestRecordReadiness_Expired(t *testing.T) {
+	rs := &pactov1alpha1.ReadinessStatus{
+		Score: 0, Passing: false, NotDoneCount: 2,
+	}
+	RecordReadiness("test-ns", "expired", rs, pactov1alpha1.ReasonReadinessExpired)
+}

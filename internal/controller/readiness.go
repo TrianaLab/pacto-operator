@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	pactov1alpha1 "github.com/trianalab/pacto-operator/api/v1alpha1"
+	"github.com/trianalab/pacto-operator/internal/metrics"
 	"github.com/trianalab/pacto/v2/pkg/contract"
 	"github.com/trianalab/pacto/v2/pkg/readiness"
 )
@@ -42,6 +43,7 @@ func (r *PactoReconciler) reconcileReadiness(pacto *pactov1alpha1.Pacto, c *cont
 
 	status, reason, msg := readinessCondition(eval)
 	r.setCondition(pacto, pactov1alpha1.ConditionReadinessSatisfied, status, reason, msg)
+	metrics.RecordReadiness(pacto.Namespace, pacto.Name, pacto.Status.Readiness, reason)
 
 	switch {
 	case status == metav1.ConditionFalse && !wasUnmet:

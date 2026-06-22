@@ -35,12 +35,26 @@ var allStatuses = []string{
 	pactov1alpha1.ContractStatusUnknown,
 }
 
+// allReadinessStatuses is the set of readiness gate states emitted by RecordReadiness.
+var allReadinessStatuses = []string{
+	pactov1alpha1.ReasonReadinessSatisfied,
+	pactov1alpha1.ReasonReadinessBelowMinScore,
+	pactov1alpha1.ReasonReadinessExpired,
+}
+
+// readinessCheckStatuses is the set of declared per-check statuses for pacto_readiness_checks.
+var readinessCheckStatuses = []string{"done", "partial", "not-done", "deferred"}
+
 var (
 	complianceStatus otelmetric.Int64Gauge
 	validationErrors otelmetric.Int64Gauge
 	validationWarns  otelmetric.Int64Gauge
 	validationResult otelmetric.Int64Gauge
 	contractStatus   otelmetric.Int64Gauge
+	readinessScore   otelmetric.Int64Gauge
+	readinessGate    otelmetric.Int64Gauge
+	readinessStatus  otelmetric.Int64Gauge
+	readinessChecks  otelmetric.Int64Gauge
 )
 
 func init() {
@@ -80,6 +94,18 @@ func registerGauges(exporter sdkmetric.Reader) {
 	)
 	contractStatus, _ = meter.Int64Gauge("pacto_contract_status",
 		otelmetric.WithDescription("Contract status by phase (1=active, 0=inactive). Label 'status' is one of: Compliant, Warning, NonCompliant, Reference, Unknown"),
+	)
+	readinessScore, _ = meter.Int64Gauge("pacto_readiness_score",
+		otelmetric.WithDescription("Derived operational readiness score (0-100)"),
+	)
+	readinessGate, _ = meter.Int64Gauge("pacto_readiness_gate",
+		otelmetric.WithDescription("Whether the readiness gate is met (1=passing, 0=not passing)"),
+	)
+	readinessStatus, _ = meter.Int64Gauge("pacto_readiness_status",
+		otelmetric.WithDescription("Readiness gate state (1=active, 0=inactive). Label 'status' is one of: Satisfied, BelowMinScore, Expired"),
+	)
+	readinessChecks, _ = meter.Int64Gauge("pacto_readiness_checks",
+		otelmetric.WithDescription("Number of readiness checks by declared status. Label 'status' is one of: done, partial, not-done, deferred"),
 	)
 }
 
@@ -141,4 +167,54 @@ func RecordValidation(namespace, service string, checks []validator.Check) {
 
 	validationErrors.Record(ctx, errors, otelmetric.WithAttributes(baseAttrs...))
 	validationWarns.Record(ctx, warnings, otelmetric.WithAttributes(baseAttrs...))
+}
+
+// RecordReadiness emits the readiness gauges for a Pacto CR: the derived score,
+// the gate result, an info-style per-state gauge (pacto_readiness_status), and
+// per-declared-status check counts (pacto_readiness_checks). gateReason is the
+// ReadinessSatisfied condition reason (Satisfied/BelowMinScore/Expired). It is a
+// no-op when the contract declares no readiness (rs is nil).
+func RecordReadiness(namespace, name string, rs *pactov1alpha1.ReadinessStatus, gateReason string) {
+	if rs == nil {
+		return
+	}
+	ctx := context.Background()
+	idAttrs := []attribute.KeyValue{
+		attribute.String("name", name),
+		attribute.String("namespace", namespace),
+	}
+
+	readinessScore.Record(ctx, int64(rs.Score), otelmetric.WithAttributes(idAttrs...))
+
+	gate := int64(0)
+	if rs.Passing {
+		gate = 1
+	}
+	readinessGate.Record(ctx, gate, otelmetric.WithAttributes(idAttrs...))
+
+	for _, s := range allReadinessStatuses {
+		val := int64(0)
+		if s == gateReason {
+			val = 1
+		}
+		readinessStatus.Record(ctx, val, otelmetric.WithAttributes(
+			attribute.String("name", name),
+			attribute.String("namespace", namespace),
+			attribute.String("status", s),
+		))
+	}
+
+	counts := map[string]int64{
+		"done":     int64(rs.DoneCount),
+		"partial":  int64(rs.PartialCount),
+		"not-done": int64(rs.NotDoneCount),
+		"deferred": int64(rs.DeferredCount),
+	}
+	for _, s := range readinessCheckStatuses {
+		readinessChecks.Record(ctx, counts[s], otelmetric.WithAttributes(
+			attribute.String("name", name),
+			attribute.String("namespace", namespace),
+			attribute.String("status", s),
+		))
+	}
 }
