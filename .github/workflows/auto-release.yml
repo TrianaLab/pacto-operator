@@ -202,7 +202,10 @@ jobs:
           digest=$(docker buildx imagetools inspect \
             "ghcr.io/trianalab/pacto-operator/pacto-controller:${{ steps.meta.outputs.version }}" \
             --format '{{json .Manifest.Digest}}' | tr -d '"')
-          cosign sign --yes \
+          # cosign v3 defaults to the OCI 1.1 referrers signature format, which
+          # Artifact Hub does not recognize. --new-bundle-format=false emits the
+          # legacy sha256-<digest>.sig tag that Artifact Hub indexes as signed.
+          cosign sign --yes --new-bundle-format=false \
             "ghcr.io/trianalab/pacto-operator/pacto-controller:${{ steps.meta.outputs.version }}@${digest}"
 
   helm:
@@ -259,7 +262,10 @@ jobs:
       - name: Sign Helm chart
         run: |
           version="${{ steps.meta.outputs.version }}"
-          cosign sign --yes \
+          # cosign v3 defaults to the OCI 1.1 referrers signature format, which
+          # Artifact Hub does not recognize. --new-bundle-format=false emits the
+          # legacy sha256-<digest>.sig tag that Artifact Hub indexes as signed.
+          cosign sign --yes --new-bundle-format=false \
             ghcr.io/trianalab/charts/pacto-operator:${version}@${{ steps.push.outputs.digest }}
 
       # Publish Artifact Hub repository metadata so the chart is indexed.
