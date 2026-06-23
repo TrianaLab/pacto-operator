@@ -35,7 +35,7 @@ jobs:
             echo "type=skip" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v6.0.3
+      - uses: actions/checkout@v7.0.0
         if: steps.bump.outputs.type != 'skip'
         with:
           fetch-depth: 0
@@ -94,7 +94,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     steps:
-      - uses: actions/checkout@v6.0.3
+      - uses: actions/checkout@v7.0.0
 
       - name: Extract versions
         id: meta
@@ -214,7 +214,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6.0.3
+      - uses: actions/checkout@v7.0.0
 
       - name: Extract version
         id: meta
