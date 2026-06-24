@@ -205,7 +205,10 @@ jobs:
           # cosign v3 defaults to the OCI 1.1 referrers signature format, which
           # Artifact Hub does not recognize. --new-bundle-format=false emits the
           # legacy sha256-<digest>.sig tag that Artifact Hub indexes as signed.
-          cosign sign --yes --new-bundle-format=false \
+          # --use-signing-config=false is required alongside it; otherwise v3
+          # errors: "must provide --new-bundle-format or --bundle ... with
+          # --signing-config or --use-signing-config".
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
             "ghcr.io/trianalab/pacto-operator/pacto-controller:${{ steps.meta.outputs.version }}@${digest}"
 
   helm:
@@ -265,7 +268,10 @@ jobs:
           # cosign v3 defaults to the OCI 1.1 referrers signature format, which
           # Artifact Hub does not recognize. --new-bundle-format=false emits the
           # legacy sha256-<digest>.sig tag that Artifact Hub indexes as signed.
-          cosign sign --yes --new-bundle-format=false \
+          # --use-signing-config=false is required alongside it; otherwise v3
+          # errors: "must provide --new-bundle-format or --bundle ... with
+          # --signing-config or --use-signing-config".
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
             ghcr.io/trianalab/charts/pacto-operator:${version}@${{ steps.push.outputs.digest }}
 
       # Publish Artifact Hub repository metadata so the chart is indexed.
