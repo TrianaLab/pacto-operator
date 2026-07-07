@@ -137,16 +137,20 @@ spec:
                     type: string
                   workloadRef:
                     description: |-
-                      WorkloadRef identifies the workload (Deployment, StatefulSet, or ReplicaSet).
+                      WorkloadRef identifies the workload (Deployment, StatefulSet, ReplicaSet, Job, or CronJob).
                       If omitted, defaults to name=serviceName, kind=Deployment.
                     properties:
                       kind:
                         default: Deployment
-                        description: Kind of the workload resource.
+                        description: |-
+                          Kind of the workload resource.
+                          Job/CronJob targets require an explicit kind (contract runtime.workload job/scheduled).
                         enum:
                         - Deployment
                         - StatefulSet
                         - ReplicaSet
+                        - Job
+                        - CronJob
                         type: string
                       name:
                         description: Name of the workload resource.

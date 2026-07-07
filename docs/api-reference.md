@@ -651,7 +651,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `serviceName` _string_ | ServiceName is the name of the Kubernetes Service to observe. |  | Optional: \{\} <br /> |
-| `workloadRef` _[WorkloadRef](#workloadref)_ | WorkloadRef identifies the workload (Deployment, StatefulSet, or ReplicaSet).<br />If omitted, defaults to name=serviceName, kind=Deployment. |  | Optional: \{\} <br /> |
+| `workloadRef` _[WorkloadRef](#workloadref)_ | WorkloadRef identifies the workload (Deployment, StatefulSet, ReplicaSet, Job, or CronJob).<br />If omitted, defaults to name=serviceName, kind=Deployment. |  | Optional: \{\} <br /> |
 
 
 #### ValidationIssue
@@ -704,6 +704,6 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | Name of the workload resource. |  | Required: \{\} <br /> |
-| `kind` _string_ | Kind of the workload resource. | Deployment | Enum: [Deployment StatefulSet ReplicaSet] <br />Optional: \{\} <br /> |
+| `kind` _string_ | Kind of the workload resource.<br />Job/CronJob targets require an explicit kind (contract runtime.workload job/scheduled). | Deployment | Enum: [Deployment StatefulSet ReplicaSet Job CronJob] <br />Optional: \{\} <br /> |
 
 

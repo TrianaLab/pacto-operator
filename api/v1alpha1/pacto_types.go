@@ -41,7 +41,8 @@ type WorkloadRef struct {
 	Name string `json:"name"`
 
 	// Kind of the workload resource.
-	// +kubebuilder:validation:Enum=Deployment;StatefulSet;ReplicaSet
+	// Job/CronJob targets require an explicit kind (contract runtime.workload job/scheduled).
+	// +kubebuilder:validation:Enum=Deployment;StatefulSet;ReplicaSet;Job;CronJob
 	// +kubebuilder:default=Deployment
 	// +optional
 	Kind string `json:"kind,omitempty"`
@@ -53,7 +54,7 @@ type TargetRef struct {
 	// +optional
 	ServiceName string `json:"serviceName,omitempty"`
 
-	// WorkloadRef identifies the workload (Deployment, StatefulSet, or ReplicaSet).
+	// WorkloadRef identifies the workload (Deployment, StatefulSet, ReplicaSet, Job, or CronJob).
 	// If omitted, defaults to name=serviceName, kind=Deployment.
 	// +optional
 	WorkloadRef *WorkloadRef `json:"workloadRef,omitempty"`
