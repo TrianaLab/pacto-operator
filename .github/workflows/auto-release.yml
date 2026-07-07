@@ -146,7 +146,9 @@ jobs:
           platforms: ${{ matrix.platform }}
           tags: ghcr.io/trianalab/pacto-operator/pacto-controller:${{ steps.meta.outputs.version }}
           cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          # ignore-error: a full (10GB repo limit) or flaky GHA cache must never
+          # fail a release — export degrades to a warning instead of erroring.
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }},ignore-error=true
           build-args: |
             VERSION=${{ needs.release.outputs.tag }}
             GIT_COMMIT=${{ github.sha }}
