@@ -19,6 +19,7 @@ on:
         default: patch
 
 permissions:
+  actions: write # required for buildx to write the type=gha build cache
   contents: write
   packages: write
   id-token: write
