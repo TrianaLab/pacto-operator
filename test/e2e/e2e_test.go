@@ -241,6 +241,43 @@ readiness:
       evidence: SEC-1
       weight: 30
 `
+
+	// contractScheduled declares a "scheduled" workload — validated against a CronJob.
+	// No interfaces/Service: batch workloads are targeted via workloadRef only.
+	contractScheduled = `
+pactoVersion: "1.0"
+service:
+  name: scheduled-svc
+  version: 1.0.0
+  owner:
+    team: team-batch
+runtime:
+  workload: scheduled
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+`
+
+	// contractJob declares a "job" workload — validated against a Job.
+	contractJob = `
+pactoVersion: "1.0"
+service:
+  name: job-svc
+  version: 1.0.0
+  owner:
+    team: team-batch
+runtime:
+  workload: job
+  state:
+    type: stateless
+    persistence:
+      scope: local
+      durability: ephemeral
+    dataCriticality: low
+`
 )
 
 var _ = Describe("Operator", Ordered, func() {
@@ -539,6 +576,72 @@ var _ = Describe("Operator", Ordered, func() {
 				// Runtime mismatches produce Warning (not NonCompliant — that's only for missing resources)
 				g.Expect(status.ContractStatus).To(Equal("Warning"),
 					"expected Warning for runtime field mismatches")
+				g.Expect(status.Summary.Failed).To(BeNumerically(">", 0))
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+	})
+
+	// ── D2. Job and Scheduled Workloads ───────────────────────────────────
+	// A contract whose runtime.workload is "scheduled"/"job" is validated against
+	// a CronJob/Job target (kinds now permitted by the WorkloadRef enum). Batch
+	// workloads have no Service, so they are targeted via workloadRef only.
+
+	Context("Job and Scheduled Workloads", Ordered, func() {
+		It("should set Compliant for a scheduled contract targeting a CronJob", func() {
+			name := "e2e-scheduled"
+			cjName := "e2e-scheduled-cj"
+			createKubeCronJob(cjName, testNamespace, "busybox:latest")
+			DeferCleanup(deleteKubeCronJob, cjName, testNamespace)
+
+			applyPacto(name, testNamespace, contractScheduled, "",
+				&struct{ name, kind string }{name: cjName, kind: "CronJob"})
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("Compliant"),
+					"expected Compliant when CronJob matches scheduled contract")
+				g.Expect(status.Summary.Failed).To(Equal(float64(0)))
+				g.Expect(status.ObservedRuntime).NotTo(BeNil())
+				g.Expect(status.ObservedRuntime.WorkloadKind).To(Equal("CronJob"))
+				g.Expect(status.Runtime).NotTo(BeNil())
+				g.Expect(status.Runtime.Workload).To(Equal("scheduled"))
+				g.Expect(status.Resources.Workload.Exists).To(BeTrue())
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should set Compliant for a job contract targeting a Job", func() {
+			name := "e2e-job"
+			jobName := "e2e-job-workload"
+			createKubeJob(jobName, testNamespace, "busybox:latest")
+			DeferCleanup(deleteKubeJob, jobName, testNamespace)
+
+			applyPacto(name, testNamespace, contractJob, "",
+				&struct{ name, kind string }{name: jobName, kind: "Job"})
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("Compliant"),
+					"expected Compliant when Job matches job contract")
+				g.Expect(status.ObservedRuntime).NotTo(BeNil())
+				g.Expect(status.ObservedRuntime.WorkloadKind).To(Equal("Job"))
+				g.Expect(status.Runtime).NotTo(BeNil())
+				g.Expect(status.Runtime.Workload).To(Equal("job"))
+				g.Expect(status.Resources.Workload.Exists).To(BeTrue())
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should set NonCompliant when the scheduled contract's CronJob is missing", func() {
+			name := "e2e-scheduled-missing"
+			applyPacto(name, testNamespace, contractScheduled, "",
+				&struct{ name, kind string }{name: "nonexistent-cj", kind: "CronJob"})
+			DeferCleanup(deletePacto, name, testNamespace)
+
+			Eventually(func(g Gomega) {
+				status := getPactoStatus(g, name, testNamespace)
+				g.Expect(status.ContractStatus).To(Equal("NonCompliant"),
+					"expected NonCompliant when the CronJob target does not exist")
 				g.Expect(status.Summary.Failed).To(BeNumerically(">", 0))
 			}, 60*time.Second, 2*time.Second).Should(Succeed())
 		})
@@ -1043,38 +1146,7 @@ type revisionJSON struct {
 
 // applyPacto creates a Pacto CR using kubectl apply.
 func applyPacto(name, ns, inlineContract, serviceName string, workloadRef *struct{ name, kind string }) {
-	spec := fmt.Sprintf(`  contractRef:
-    inline: |
-%s`, indentYAML(inlineContract, 6))
-
-	if serviceName != "" {
-		spec += fmt.Sprintf(`
-  target:
-    serviceName: %s`, serviceName)
-	}
-
-	if workloadRef != nil {
-		spec += fmt.Sprintf(`
-    workloadRef:
-      name: %s
-      kind: %s`, workloadRef.name, workloadRef.kind)
-	}
-
-	// Use a short check interval for faster test feedback
-	spec += "\n  checkIntervalSeconds: 30"
-
-	manifest := fmt.Sprintf(`apiVersion: pacto.trianalab.io/v1alpha1
-kind: Pacto
-metadata:
-  name: %s
-  namespace: %s
-spec:
-%s`, name, ns, spec)
-
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(manifest)
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply Pacto CR %s", name)
+	applyPactoRaw(name, ns, inlineContract, serviceName, workloadRef, "")
 }
 
 // applyPactoRaw creates a Pacto CR with optional raw spec additions (e.g. overrides).
@@ -1083,17 +1155,17 @@ func applyPactoRaw(name, ns, inlineContract, serviceName string, workloadRef *st
     inline: |
 %s`, indentYAML(inlineContract, 6))
 
-	if serviceName != "" {
-		spec += fmt.Sprintf(`
-  target:
-    serviceName: %s`, serviceName)
-	}
-
-	if workloadRef != nil {
-		spec += fmt.Sprintf(`
-    workloadRef:
-      name: %s
-      kind: %s`, workloadRef.name, workloadRef.kind)
+	// Emit target only when there is something to target. workloadRef may be set
+	// without a serviceName (e.g. Job/CronJob targets, which have no Service).
+	if serviceName != "" || workloadRef != nil {
+		spec += "\n  target:"
+		if serviceName != "" {
+			spec += fmt.Sprintf("\n    serviceName: %s", serviceName)
+		}
+		if workloadRef != nil {
+			spec += fmt.Sprintf("\n    workloadRef:\n      name: %s\n      kind: %s",
+				workloadRef.name, workloadRef.kind)
+		}
 	}
 
 	spec += "\n  checkIntervalSeconds: 30"
@@ -1212,6 +1284,61 @@ spec:
 
 func deleteKubeDeployment(name, ns string) {
 	cmd := exec.Command("kubectl", "delete", "deployment", name, "-n", ns, "--ignore-not-found")
+	_, _ = utils.Run(cmd)
+}
+
+func createKubeCronJob(name, ns, image string) {
+	manifest := fmt.Sprintf(`apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: worker
+              image: %s
+              command: ["sh", "-c", "true"]`, name, ns, image)
+
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(manifest)
+	_, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create CronJob %s", name)
+}
+
+func deleteKubeCronJob(name, ns string) {
+	cmd := exec.Command("kubectl", "delete", "cronjob", name, "-n", ns, "--ignore-not-found")
+	_, _ = utils.Run(cmd)
+}
+
+func createKubeJob(name, ns, image string) {
+	manifest := fmt.Sprintf(`apiVersion: batch/v1
+kind: Job
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: %s
+          command: ["sh", "-c", "true"]`, name, ns, image)
+
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(manifest)
+	_, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create Job %s", name)
+}
+
+func deleteKubeJob(name, ns string) {
+	cmd := exec.Command("kubectl", "delete", "job", name, "-n", ns, "--ignore-not-found")
 	_, _ = utils.Run(cmd)
 }
 

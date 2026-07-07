@@ -169,7 +169,7 @@ spec:
       name: redis
       kind: StatefulSet
 ---
-## notification-worker — scheduled batch processor (no target, reference only)
+## notification-worker — scheduled batch processor (CronJob, no Service)
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -181,6 +181,10 @@ metadata:
 spec:
   contractRef:
     oci: ghcr.io/trianalab/pacto-demo/notification-worker
+  target:
+    workloadRef:
+      name: notification-worker
+      kind: CronJob
 ---
 ## External services — definition-only, no workloads, no targets
 apiVersion: pacto.trianalab.io/v1alpha1
