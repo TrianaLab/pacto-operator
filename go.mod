@@ -1,6 +1,6 @@
 module github.com/trianalab/pacto-operator
 
-go 1.26.0
+go 1.26.5
 
 require (
 	github.com/google/go-containerregistry v0.21.7
