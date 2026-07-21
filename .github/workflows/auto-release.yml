@@ -125,7 +125,7 @@ jobs:
           pacto_ver=$(go list -m -f '{{.Version}}' github.com/trianalab/pacto/v2 2>/dev/null || echo "")
           echo "pacto_version=${pacto_ver#v}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-go@v6.5.0
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
 
